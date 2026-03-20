@@ -5,26 +5,39 @@
 //  Created by Rainux Luo on 2026/3/20.
 //
 
+import Carbon
 import Cocoa
+import InputMethodKit
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    @IBOutlet var window: NSWindow!
-
+    var server: IMKServer!
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
-        // Insert code here to initialize your application
+        registerInputSourceIfNeeded()
+
+        server = IMKServer(
+            name: "LaplaceIME_Connection",
+            bundleIdentifier: Bundle.main.bundleIdentifier!
+        )
+        NSLog("LaplaceIME: IMKServer started")
     }
 
-    func applicationWillTerminate(_ aNotification: Notification) {
-        // Insert code here to tear down your application
+    /// 首次启动时向系统注册输入法，免去注销登录
+    private func registerInputSourceIfNeeded() {
+        let bundleURL = Bundle.main.bundleURL as CFURL
+        let status = TISRegisterInputSource(bundleURL)
+        if status != noErr {
+            NSLog("LaplaceIME: TISRegisterInputSource returned %d", status)
+        } else {
+            NSLog("LaplaceIME: Input source registered successfully")
+        }
     }
+
+    func applicationWillTerminate(_ aNotification: Notification) {}
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
     }
-
-
 }
-

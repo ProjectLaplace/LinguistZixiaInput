@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D8EBC66D2F6DA5A7005D1F59 /* PinyinEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D8EBC66C2F6DA5A7005D1F59 /* PinyinEngine */; };
+		D8EBC6702F6DA5E7005D1F59 /* InputMethodKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D8EBC66F2F6DA5E7005D1F59 /* InputMethodKit.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		D8EBC6152F6DA2DC005D1F59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,11 +32,25 @@
 		D8EBC6062F6DA2D9005D1F59 /* LaplaceIME.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LaplaceIME.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8EBC6142F6DA2DC005D1F59 /* LaplaceIMETests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LaplaceIMETests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8EBC61E2F6DA2DC005D1F59 /* LaplaceIMEUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LaplaceIMEUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D8EBC66F2F6DA5E7005D1F59 /* InputMethodKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = InputMethodKit.framework; path = System/Library/Frameworks/InputMethodKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D8EBC6712F6DAA83005D1F59 /* Exceptions for "LaplaceIME" folder in "LaplaceIME" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D8EBC6052F6DA2D9005D1F59 /* LaplaceIME */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		D8EBC6082F6DA2D9005D1F59 /* LaplaceIME */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D8EBC6712F6DAA83005D1F59 /* Exceptions for "LaplaceIME" folder in "LaplaceIME" target */,
+			);
 			path = LaplaceIME;
 			sourceTree = "<group>";
 		};
@@ -52,6 +71,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D8EBC66D2F6DA5A7005D1F59 /* PinyinEngine in Frameworks */,
+				D8EBC6702F6DA5E7005D1F59 /* InputMethodKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +99,7 @@
 				D8EBC6082F6DA2D9005D1F59 /* LaplaceIME */,
 				D8EBC6172F6DA2DC005D1F59 /* LaplaceIMETests */,
 				D8EBC6212F6DA2DC005D1F59 /* LaplaceIMEUITests */,
+				D8EBC66E2F6DA5E7005D1F59 /* Frameworks */,
 				D8EBC6072F6DA2D9005D1F59 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +112,14 @@
 				D8EBC61E2F6DA2DC005D1F59 /* LaplaceIMEUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D8EBC66E2F6DA5E7005D1F59 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				D8EBC66F2F6DA5E7005D1F59 /* InputMethodKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +142,7 @@
 			);
 			name = LaplaceIME;
 			packageProductDependencies = (
+				D8EBC66C2F6DA5A7005D1F59 /* PinyinEngine */,
 			);
 			productName = LaplaceIME;
 			productReference = D8EBC6062F6DA2D9005D1F59 /* LaplaceIME.app */;
@@ -195,6 +226,9 @@
 			);
 			mainGroup = D8EBC5FD2F6DA2D9005D1F59;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D8EBC66B2F6DA5A7005D1F59 /* XCLocalSwiftPackageReference "../../Packages/PinyinEngine" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D8EBC6072F6DA2D9005D1F59 /* Products */;
 			projectDirPath = "";
@@ -398,10 +432,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = SAU5W824JN;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LaplaceIME/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -409,8 +443,9 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.1b2c.LaplaceIME;
+				PRODUCT_BUNDLE_IDENTIFIER = org.1b2c.inputmethod.LaplaceIME;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -431,10 +466,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = SAU5W824JN;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LaplaceIME/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainNibFile = MainMenu;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -442,8 +477,9 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.1b2c.LaplaceIME;
+				PRODUCT_BUNDLE_IDENTIFIER = org.1b2c.inputmethod.LaplaceIME;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -575,6 +611,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D8EBC66B2F6DA5A7005D1F59 /* XCLocalSwiftPackageReference "../../Packages/PinyinEngine" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/PinyinEngine;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D8EBC66C2F6DA5A7005D1F59 /* PinyinEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PinyinEngine;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D8EBC5FE2F6DA2D9005D1F59 /* Project object */;
 }
