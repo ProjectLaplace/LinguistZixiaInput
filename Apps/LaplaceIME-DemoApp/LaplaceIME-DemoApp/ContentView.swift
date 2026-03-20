@@ -10,7 +10,7 @@ import SwiftUI
 
 /// 仿真器的主视图
 struct ContentView: View {
-    @State private var pinyinBuffer: String = ""
+    @State private var composingItems: [ComposingItem] = []
     @State private var resultText: String = ""
     @State private var candidates: [String] = []
     @State private var selectedIndex: Int = 0
@@ -28,7 +28,7 @@ struct ContentView: View {
                 ZStack(alignment: .bottomLeading) {
                     if !candidates.isEmpty {
                         CandidatePanelView(
-                            pinyin: pinyinBuffer,
+                            pinyin: currentActivePinyin,
                             candidates: candidates,
                             selectedIndex: selectedIndex
                         )
@@ -37,16 +37,17 @@ struct ContentView: View {
                 }
                 .frame(width: fixedBoxWidth, height: 50, alignment: .leading)
 
-                // 2. 仿真输入框
+                // 2. 仿真输入框：支持渲染复合 Item
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
                         .background(Color(NSColor.controlBackgroundColor))
 
                     HStack(spacing: 0) {
-                        Text(pinyinBuffer)
-                            .font(.system(.title2, design: .monospaced))
-                            .foregroundColor(.primary)
+                        ForEach(0..<composingItems.count, id: \.self) { index in
+                            renderItem(composingItems[index])
+                        }
+
                         // 模拟光标
                         Rectangle()
                             .fill(Color.accentColor)
@@ -107,6 +108,31 @@ struct ContentView: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: candidates.isEmpty)
     }
 
+    /// 获取当前正在处理的拼音（用于候选框回显）
+    private var currentActivePinyin: String {
+        if case .pinyin(let s) = composingItems.last {
+            return s
+        }
+        return ""
+    }
+
+    @ViewBuilder
+    private func renderItem(_ item: ComposingItem) -> some View {
+        switch item {
+        case .text(let s):
+            Text(s)
+                .font(.system(.title2, design: .default))
+                .foregroundColor(.primary)
+                .padding(.horizontal, 2)
+                .background(Color.accentColor.opacity(0.1))
+                .cornerRadius(4)
+        case .pinyin(let s):
+            Text(s)
+                .font(.system(.title2, design: .monospaced))
+                .foregroundColor(.primary)
+        }
+    }
+
     // MARK: - 按键处理逻辑
 
     private func handleKeyEvent(_ event: NSEvent) {
@@ -142,7 +168,7 @@ struct ContentView: View {
     }
 
     private func apply(_ state: EngineState) {
-        pinyinBuffer = state.buffer
+        composingItems = state.items
         candidates = state.candidates
         currentModeName = state.mode.rawValue
         selectedIndex = 0
@@ -153,7 +179,7 @@ struct ContentView: View {
     }
 }
 
-/// 绝对固定宽度的候选词面板组件 (内容紧凑左对齐)
+/// 绝对固定宽度的候选词面板组件
 struct CandidatePanelView: View {
     let pinyin: String
     let candidates: [String]
