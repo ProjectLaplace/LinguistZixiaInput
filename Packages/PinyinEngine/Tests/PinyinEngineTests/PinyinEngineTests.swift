@@ -289,4 +289,19 @@ final class PinyinEngineTests: XCTestCase {
         // Should focus on the last editable segment
         XCTAssertNotNil(state.focusedSegmentIndex)
     }
+
+    // MARK: - Apostrophe Separation (撇号分隔)
+
+    func testApostropheSeparationCandidates() {
+        // "xi'an" — user explicitly separates into xi + an
+        // Candidates should NOT include single-char words like 先/现 (those match "xian" as one syllable)
+        // Should include composed "西安" (西 + 安)
+        let state = type("xi'an")
+        XCTAssertFalse(state.candidates.isEmpty, "xi'an should produce candidates")
+        // Single-char xian words should be filtered out
+        XCTAssertFalse(state.candidates.contains("先"), "Single-char 先 should not appear for xi'an")
+        XCTAssertFalse(state.candidates.contains("现"), "Single-char 现 should not appear for xi'an")
+        // Composed candidate 西安 should be present
+        XCTAssertTrue(state.candidates.contains("西安"), "Composed 西安 should appear for xi'an")
+    }
 }

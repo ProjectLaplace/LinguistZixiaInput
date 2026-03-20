@@ -20,6 +20,11 @@ struct ContentView: View {
     // 核心引擎实例
     private let engine = PinyinEngine()
     private let fixedBoxWidth: CGFloat = 600.0
+    private let punctuationChars: Set<Character> = [
+        ",", ".", ";", ":", "?", "!", "\\",
+        "(", ")", "<", ">", "\"",
+        "~", "$", "^", "_", "`",
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -176,7 +181,10 @@ struct ContentView: View {
                 } else if first == "]" {
                     engineEvent = .bracket(pickLast: true)
                 } else if first == "'" {
-                    engineEvent = .letter(first)
+                    let hasPinyin = composingItems.contains { $0.isPinyin }
+                    engineEvent = hasPinyin ? .letter(first) : .punctuation(first)
+                } else if punctuationChars.contains(first) {
+                    engineEvent = .punctuation(first)
                 }
             }
         }

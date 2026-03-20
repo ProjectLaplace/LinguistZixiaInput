@@ -50,6 +50,7 @@ public enum EngineEvent {
     case esc
     case bracket(pickLast: Bool)
     case tab(backward: Bool)
+    case punctuation(Character)
 }
 
 /// 输入模式：中文为默认持久模式，临时模式在提交后自动回退
@@ -97,6 +98,21 @@ public class PinyinEngine {
     // 自动切分状态
     private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
     private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
+
+    // 全角标点状态
+    private var doubleQuoteOpen = false  // " 的开闭状态
+    private var singleQuoteOpen = false  // ' 的开闭状态
+
+    /// 半角→全角标点映射表
+    private static let punctuationMap: [Character: String] = [
+        ",": "，", ".": "。", ";": "；", ":": "：",
+        "?": "？", "!": "！", "\\": "、",
+        "(": "（", ")": "）",
+        "<": "《", ">": "》",
+        "~": "～", "$": "￥",
+        "^": "……", "_": "——",
+        "`": "·",
+    ]
 
     /// 使用 Bundle 内置词库初始化
     public init() {
@@ -156,6 +172,9 @@ public class PinyinEngine {
 
         case .tab(let backward):
             handleTab(backward: backward)
+
+        case .punctuation(let char):
+            committedText = handlePunctuation(char)
         }
 
         return EngineState(
@@ -306,6 +325,42 @@ public class PinyinEngine {
         updateCandidatesForFocus()
     }
 
+    // MARK: - 全角标点
+
+    /// 处理标点输入：缓冲区非空时先提交，再输出全角标点
+    private func handlePunctuation(_ char: Character) -> String? {
+        let fullWidth = mapToFullWidth(char)
+
+        if composingItems.isEmpty {
+            // 缓冲区为空，直接输出全角标点
+            return fullWidth
+        } else {
+            // 缓冲区非空：先用首选候选提交缓冲区，再追加标点
+            var result = ""
+            if let first = candidates.first {
+                finalizeAllPinyin(with: first)
+                result = composingItems.map { $0.content }.joined()
+            } else {
+                result = rawContentForCommit()
+            }
+            resetAll()
+            return result + fullWidth
+        }
+    }
+
+    /// 将半角字符映射为全角，处理引号开闭状态
+    private func mapToFullWidth(_ char: Character) -> String {
+        if char == "\"" {
+            doubleQuoteOpen.toggle()
+            return doubleQuoteOpen ? "\u{201C}" : "\u{201D}"  // " "
+        }
+        if char == "'" {
+            singleQuoteOpen.toggle()
+            return singleQuoteOpen ? "\u{2018}" : "\u{2019}"  // ' '
+        }
+        return Self.punctuationMap[char] ?? String(char)
+    }
+
     // MARK: - 自动切分与重建
 
     /// 根据 rawPinyin 重建可编辑的 composingItems
@@ -351,10 +406,17 @@ public class PinyinEngine {
 
         // 1. 整串匹配（去掉 apostrophe）
         let cleanPinyin = rawPinyin.replacingOccurrences(of: "'", with: "")
-        let wholeMatches = store?.candidates(for: cleanPinyin) ?? []
+        var wholeMatches = store?.candidates(for: cleanPinyin) ?? []
 
         // 2. 如果有多个音节，尝试组合候选
         let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
+        let hasApostrophe = rawPinyin.contains("'")
+
+        // 用户用撇号显式分隔时，按音节数过滤整串匹配结果
+        if hasApostrophe && syllables.count > 1 {
+            wholeMatches = wholeMatches.filter { $0.count == syllables.count }
+        }
+
         var composed: String? = nil
         if syllables.count > 1 && remainder.isEmpty {
             // 所有音节都完整，尝试逐段匹配后组合

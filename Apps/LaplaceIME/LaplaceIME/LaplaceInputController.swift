@@ -13,6 +13,12 @@ class LaplaceInputController: IMKInputController {
 
     private let engine = PinyinEngine()
     private var currentState = EngineState.idle
+
+    private static let punctuationChars: Set<Character> = [
+        ",", ".", ";", ":", "?", "!", "\\",
+        "(", ")", "<", ">", "\"",
+        "~", "$", "^", "_", "`",
+    ]
     private static var candidatesWindow: IMKCandidates = {
         let candidates = IMKCandidates(server: NSApp.delegate is AppDelegate
             ? (NSApp.delegate as! AppDelegate).server
@@ -75,7 +81,11 @@ class LaplaceInputController: IMKInputController {
         } else if first == "]" {
             return .bracket(pickLast: true)
         } else if first == "'" {
-            return .letter(first)
+            // 有活跃拼音时作为分隔符，否则作为标点
+            return currentState.items.contains(where: { $0.isPinyin })
+                ? .letter(first) : .punctuation(first)
+        } else if Self.punctuationChars.contains(first) {
+            return .punctuation(first)
         }
 
         return nil
