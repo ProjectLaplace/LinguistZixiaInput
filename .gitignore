@@ -2,3 +2,4 @@
 brainstorm/
 conductor/
 
+.claude/settings.local.json
