@@ -61,33 +61,36 @@ public struct EngineState {
 /// PinyinEngine 核心逻辑
 /// 采用复合缓冲区（Composite Buffer）设计，支持多阶段组词与临时模式扩展。
 public class PinyinEngine {
-    // 词库映射：物理分离
-    private var zhDictionary: [String: [String]] = [:]
-    private var jaDictionary: [String: [String]] = [:]
+    // 词库：物理分离，SQLite 支持
+    private var zhStore: DictionaryStore?
+    private var jaStore: DictionaryStore?
 
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
     private var candidates: [String] = []
     private var currentMode: InputMode = .pinyin
 
+    /// 使用 Bundle 内置词库初始化
     public init() {
         loadDictionaries()
     }
 
-    // MARK: - 词库加载
-
-    /// 从本地资源加载 JSON 词库
-    private func loadDictionaries() {
-        zhDictionary = loadJSON(named: "zh_dict")
-        jaDictionary = loadJSON(named: "ja_dict")
+    /// 使用指定的词库文件路径初始化
+    public init(zhDictPath: String, jaDictPath: String) {
+        zhStore = DictionaryStore(path: zhDictPath)
+        jaStore = DictionaryStore(path: jaDictPath)
     }
 
-    private func loadJSON(named name: String) -> [String: [String]] {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "json"),
-            let data = try? Data(contentsOf: url),
-            let dict = try? JSONDecoder().decode([String: [String]].self, from: data)
-        else { return [:] }
-        return dict
+    // MARK: - 词库加载
+
+    /// 从 Bundle 资源加载 SQLite 词库
+    private func loadDictionaries() {
+        if let url = Bundle.module.url(forResource: "zh_dict", withExtension: "db") {
+            zhStore = DictionaryStore(path: url.path)
+        }
+        if let url = Bundle.module.url(forResource: "ja_dict", withExtension: "db") {
+            jaStore = DictionaryStore(path: url.path)
+        }
     }
 
     // MARK: - 核心处理入口
@@ -211,8 +214,8 @@ public class PinyinEngine {
 
         switch last {
         case .pinyin(let s):
-            let dict = (currentMode == .pinyin) ? zhDictionary : jaDictionary
-            candidates = dict[s] ?? []
+            let store = (currentMode == .pinyin) ? zhStore : jaStore
+            candidates = store?.candidates(for: s) ?? []
         case .text:
             candidates = []
         }
@@ -235,7 +238,7 @@ public class PinyinEngine {
 
     /// 兼容旧版调用接口
     public func getCandidates(for pinyin: String) -> [String] {
-        let dict = (currentMode == .pinyin) ? zhDictionary : jaDictionary
-        return dict[pinyin.lowercased()] ?? []
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+        return store?.candidates(for: pinyin.lowercased()) ?? []
     }
 }
