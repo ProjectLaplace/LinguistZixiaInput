@@ -30,6 +30,8 @@ final class PinyinEngineTests: XCTestCase {
     private func number(_ n: Int) -> EngineState { engine.process(.number(n)) }
     private func bracketLeft() -> EngineState { engine.process(.bracket(pickLast: false)) }
     private func bracketRight() -> EngineState { engine.process(.bracket(pickLast: true)) }
+    private func tab() -> EngineState { engine.process(.tab(backward: false)) }
+    private func shiftTab() -> EngineState { engine.process(.tab(backward: true)) }
 
     // MARK: - Basic Input & Commit Flows
 
@@ -191,5 +193,100 @@ final class PinyinEngineTests: XCTestCase {
         let state = space()
         XCTAssertEqual(state.committedText, "xyz")
         XCTAssertTrue(state.items.isEmpty)
+    }
+
+    // MARK: - Auto-split & Composition (自动切分与组词)
+
+    func testMultiSyllableAutoSplit() {
+        let state = type("shijian")
+        // "shijian" should auto-split into provisional("shi") + pinyin("jian")
+        XCTAssertEqual(state.items.count, 2)
+        XCTAssertEqual(state.items[0], .provisional(pinyin: "shi", candidate: "是"))
+        XCTAssertEqual(state.items[1], .pinyin("jian"))
+        // Whole-string match "时间" should be first candidate
+        XCTAssertEqual(state.candidates.first, "时间")
+    }
+
+    func testAutoSplitSpaceCommitsWholeStringMatch() {
+        type("shijian")
+        let state = space()
+        // Whole-string match "时间" takes priority
+        XCTAssertEqual(state.committedText, "时间")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testAutoSplitComposedCandidate() {
+        // "wode" exists as a word, so whole-string match comes first
+        let state = type("wode")
+        XCTAssertEqual(state.candidates.first, "我的")
+    }
+
+    func testAutoSplitLongPhraseComposition() {
+        // "kaifajishu" — no whole-string match, but per-syllable composition works
+        let state = type("kaifajishu")
+        // Should have provisional items for completed syllables
+        XCTAssertTrue(state.items.count > 1, "Should auto-split into multiple segments")
+        // Composed candidate should exist: 开发 + 技术 or 开 + 发 + 技 + 术
+        let display = state.fullDisplayBuffer
+        XCTAssertFalse(display == "kaifajishu", "Should show Chinese preview, not raw pinyin")
+    }
+
+    func testAutoSplitPartialInput() {
+        // "shij" — "shi" is complete, "j" is partial remainder
+        let state = type("shij")
+        XCTAssertEqual(state.items.count, 2)
+        XCTAssertEqual(state.items[0], .provisional(pinyin: "shi", candidate: "是"))
+        XCTAssertEqual(state.items[1], .pinyin("j"))
+    }
+
+    func testEnterCommitsRawPinyinWithAutoSplit() {
+        type("shijian")
+        let state = enter()
+        // Enter should commit raw pinyin, not candidates
+        XCTAssertEqual(state.committedText, "shijian")
+    }
+
+    // MARK: - Tab Navigation (Tab 段间导航)
+
+    func testTabEntersSegmentFocus() {
+        type("shijian")
+        let state = tab()
+        // Should focus on the first editable segment
+        XCTAssertNotNil(state.focusedSegmentIndex)
+    }
+
+    func testTabShowsPerSegmentCandidates() {
+        type("shijian")
+        let beforeTab = engine.process(.tab(backward: false))
+        // After Tab, candidates should be for the focused segment, not whole string
+        // First segment is "shi"
+        XCTAssertEqual(beforeTab.candidates.first, "是")
+    }
+
+    func testTabCycleThroughSegments() {
+        type("shijian")
+        tab()  // focus on first segment
+        let state = tab()  // move to second segment
+        // Candidates should now be for "jian"
+        XCTAssertFalse(state.candidates.isEmpty)
+        // Focus should have moved
+        XCTAssertNotNil(state.focusedSegmentIndex)
+    }
+
+    func testSpaceInTabModeConfirmsSegment() {
+        type("shijian")
+        tab()  // focus on first segment "shi"
+        let state = space()  // confirm with first candidate
+        // Should NOT commit to output, just confirm the segment
+        XCTAssertNil(state.committedText)
+        // The focused segment should now be .text
+        XCTAssertTrue(state.items.contains(.text("是")))
+    }
+
+    func testShiftTabNavigatesBackward() {
+        type("shijian")
+        let state = shiftTab()
+        // Should focus on the last editable segment
+        XCTAssertNotNil(state.focusedSegmentIndex)
     }
 }

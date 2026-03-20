@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var candidates: [String] = []
     @State private var selectedIndex: Int = 0
     @State private var currentModeName: String = "中文"
+    @State private var focusedSegmentIndex: Int? = nil
 
     // 核心引擎实例
     private let engine = PinyinEngine()
@@ -45,7 +46,7 @@ struct ContentView: View {
 
                     HStack(spacing: 0) {
                         ForEach(0..<composingItems.count, id: \.self) { index in
-                            renderItem(composingItems[index])
+                            renderItem(composingItems[index], isFocused: index == focusedSegmentIndex)
                         }
 
                         // 模拟光标
@@ -110,14 +111,19 @@ struct ContentView: View {
 
     /// 获取当前正在处理的拼音（用于候选框回显）
     private var currentActivePinyin: String {
-        if case .pinyin(let s) = composingItems.last {
-            return s
+        // Tab 聚焦模式：显示聚焦段的拼音
+        if let idx = focusedSegmentIndex, idx < composingItems.count {
+            return composingItems[idx].sourcePinyin ?? ""
+        }
+        // 正常模式：显示末尾的活跃拼音
+        if let last = composingItems.last, let pinyin = last.sourcePinyin {
+            return pinyin
         }
         return ""
     }
 
     @ViewBuilder
-    private func renderItem(_ item: ComposingItem) -> some View {
+    private func renderItem(_ item: ComposingItem, isFocused: Bool) -> some View {
         switch item {
         case .text(let s):
             Text(s)
@@ -126,10 +132,20 @@ struct ContentView: View {
                 .padding(.horizontal, 2)
                 .background(Color.accentColor.opacity(0.1))
                 .cornerRadius(4)
+        case .provisional(_, let candidate):
+            Text(candidate)
+                .font(.system(.title2, design: .default))
+                .foregroundColor(.secondary)
+                .underline()
+                .padding(.horizontal, 2)
+                .background(isFocused ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(4)
         case .pinyin(let s):
             Text(s)
                 .font(.system(.title2, design: .monospaced))
                 .foregroundColor(.primary)
+                .background(isFocused ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(4)
         }
     }
 
@@ -143,6 +159,7 @@ struct ContentView: View {
         case 49: engineEvent = .space
         case 36: engineEvent = .enter
         case 53: engineEvent = .esc
+        case 48: engineEvent = .tab(backward: event.modifierFlags.contains(.shift))
         default: break
         }
 
@@ -158,6 +175,8 @@ struct ContentView: View {
                     engineEvent = .bracket(pickLast: false)
                 } else if first == "]" {
                     engineEvent = .bracket(pickLast: true)
+                } else if first == "'" {
+                    engineEvent = .letter(first)
                 }
             }
         }
@@ -172,6 +191,7 @@ struct ContentView: View {
         candidates = state.candidates
         currentModeName = state.mode.rawValue
         selectedIndex = 0
+        focusedSegmentIndex = state.focusedSegmentIndex
 
         if let committed = state.committedText {
             resultText += committed

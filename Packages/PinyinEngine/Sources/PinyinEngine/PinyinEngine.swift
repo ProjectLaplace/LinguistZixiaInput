@@ -1,21 +1,41 @@
 import Foundation
 
-/// 组合项：可以是确定的文本，也可以是待处理的拼音。
+/// 组合项：可以是确定的文本、待处理的拼音、或自动匹配的预览。
 /// 复合缓冲区架构的核心，支持「以词定字」后的持续组词。
 public enum ComposingItem: Equatable {
     case text(String)
     case pinyin(String)
+    /// 自动匹配的预览项：显示候选汉字，但仍可通过 Tab 聚焦后替换
+    case provisional(pinyin: String, candidate: String)
 
-    /// 是否为拼音项
+    /// 是否为活跃的拼音输入项
     public var isPinyin: Bool {
         if case .pinyin = self { return true }
         return false
+    }
+
+    /// 是否为可编辑项（拼音或预览）
+    public var isEditable: Bool {
+        switch self {
+        case .pinyin, .provisional: return true
+        case .text: return false
+        }
+    }
+
+    /// 获取该项的原始拼音（仅对拼音和预览项有效）
+    public var sourcePinyin: String? {
+        switch self {
+        case .pinyin(let s): return s
+        case .provisional(let pinyin, _): return pinyin
+        case .text: return nil
+        }
     }
 
     /// 获取该项的显示文本内容
     public var content: String {
         switch self {
         case .text(let s), .pinyin(let s): return s
+        case .provisional(_, let candidate): return candidate
         }
     }
 }
@@ -29,6 +49,7 @@ public enum EngineEvent {
     case backspace
     case esc
     case bracket(pickLast: Bool)
+    case tab(backward: Bool)
 }
 
 /// 输入模式：中文为默认持久模式，临时模式在提交后自动回退
@@ -41,12 +62,14 @@ public enum InputMode: String {
 public struct EngineState {
     /// 当前复合缓冲区中的所有项
     public let items: [ComposingItem]
-    /// 针对最后一段拼音生成的候选词列表
+    /// 针对当前聚焦段生成的候选词列表
     public let candidates: [String]
     /// 本轮交互产生的上屏文本（如有）
     public let committedText: String?
     /// 当前引擎所处的输入模式
     public let mode: InputMode
+    /// 当前聚焦的可编辑段索引（在可编辑段中的序号，nil 表示末尾）
+    public let focusedSegmentIndex: Int?
 
     /// 组合缓冲区的完整拼接字符串（用于 UI 调试）
     public var fullDisplayBuffer: String {
@@ -55,7 +78,8 @@ public struct EngineState {
 
     /// 初始空闲状态
     public static let idle = EngineState(
-        items: [], candidates: [], committedText: nil, mode: .pinyin)
+        items: [], candidates: [], committedText: nil, mode: .pinyin,
+        focusedSegmentIndex: nil)
 }
 
 /// PinyinEngine 核心逻辑
@@ -69,6 +93,10 @@ public class PinyinEngine {
     private var composingItems: [ComposingItem] = []
     private var candidates: [String] = []
     private var currentMode: InputMode = .pinyin
+
+    // 自动切分状态
+    private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
+    private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
 
     /// 使用 Bundle 内置词库初始化
     public init() {
@@ -112,119 +140,327 @@ public class PinyinEngine {
             resetAll()
 
         case .enter:
-            // Enter 键逻辑：上屏当前缓冲区内所有内容的原文
             if !composingItems.isEmpty {
-                committedText = composingItems.map { $0.content }.joined()
+                committedText = rawContentForCommit()
                 resetAll()
             }
 
         case .space:
-            // Space 键逻辑：确认当前候选并尝试整体上屏
-            if let first = candidates.first {
-                finalizeLastPinyin(with: first)
-                committedText = composingItems.map { $0.content }.joined()
-                resetAll()
-            } else if !composingItems.isEmpty {
-                // 无候选时，空格行为等同于回车，上屏原文
-                committedText = composingItems.map { $0.content }.joined()
-                resetAll()
-            }
+            committedText = handleSpace()
 
         case .number(let index):
-            // 数字选词逻辑：将当前拼音段坍缩为确定的文字，但不立即上屏，允许继续组词
-            let actualIndex = index - 1
-            if actualIndex >= 0 && actualIndex < candidates.count {
-                finalizeLastPinyin(with: candidates[actualIndex])
-            }
+            handleNumber(index)
 
         case .bracket(let pickLast):
-            // 以词定字逻辑：取首个候选词的指定字符，暂存在 Buffer 中
-            if let first = candidates.first,
-                let char = pickCharacter(from: first, pickLast: pickLast)
-            {
-                finalizeLastPinyin(with: char)
-            }
+            handleBracket(pickLast: pickLast)
+
+        case .tab(let backward):
+            handleTab(backward: backward)
         }
 
         return EngineState(
             items: composingItems,
             candidates: candidates,
             committedText: committedText,
-            mode: currentMode
+            mode: currentMode,
+            focusedSegmentIndex: focusIndex
         )
     }
 
-    // MARK: - 内部私有逻辑
+    // MARK: - 字母输入
 
-    /// 处理字母按键：涉及模式切换与拼音段追加
+    /// 处理字母按键：涉及模式切换、拼音追加与自动切分
     private func handleLetter(_ char: Character) {
         let lowerChar = char.lowercased()
 
         // 分段模式切换：在 Buffer 为空或处于段落边界（刚定完字）时，'i' 作为开关
-        let isAtSegmentBoundary = composingItems.isEmpty || !composingItems.last!.isPinyin
+        let isAtSegmentBoundary = composingItems.isEmpty
+            || (!composingItems.last!.isEditable)
         if isAtSegmentBoundary && lowerChar == "i" {
             currentMode = (currentMode == .pinyin) ? .transient : .pinyin
             return
         }
 
-        // 如果最后一段不是拼音（或者是空的），则开辟新的拼音段
-        if composingItems.isEmpty || !composingItems.last!.isPinyin {
-            composingItems.append(.pinyin(lowerChar))
-        } else {
-            // 否则在当前拼音段末尾追加
-            if case .pinyin(let existing) = composingItems.removeLast() {
-                composingItems.append(.pinyin(existing + lowerChar))
-            }
+        // 如果当前没有活跃的拼音输入（上次是 .text），开始新的拼音串
+        if rawPinyin.isEmpty && !composingItems.isEmpty && !composingItems.last!.isEditable {
+            // Starting a new pinyin segment after confirmed text
         }
-        updateCandidates()
+
+        // Tab 聚焦模式下不追加字母，退出聚焦回到末尾
+        focusIndex = nil
+
+        rawPinyin += lowerChar
+        rebuildFromRawPinyin()
     }
 
-    /// 处理退格逻辑：支持按字符逐位删除已确定的文字或拼音
-    private func handleBackspace() {
-        guard !composingItems.isEmpty else { return }
+    // MARK: - 退格
 
-        var last = composingItems.removeLast()
-        switch last {
-        case .pinyin(let s):
-            if s.count > 1 {
-                composingItems.append(.pinyin(String(s.dropLast())))
+    /// 处理退格逻辑
+    private func handleBackspace() {
+        // 如果在 Tab 聚焦模式，退格退出聚焦
+        if focusIndex != nil {
+            focusIndex = nil
+            rebuildFromRawPinyin()
+            return
+        }
+
+        if !rawPinyin.isEmpty {
+            // 删除拼音串末尾字符
+            rawPinyin = String(rawPinyin.dropLast())
+            if rawPinyin.isEmpty {
+                // 拼音全部删完，移除所有可编辑项
+                composingItems.removeAll { $0.isEditable }
+                candidates = []
+            } else {
+                rebuildFromRawPinyin()
             }
-        case .text(let s):
-            if s.count > 1 {
+        } else if !composingItems.isEmpty {
+            // 没有活跃拼音，删除最后一个已确定的文字
+            let last = composingItems.removeLast()
+            if case .text(let s) = last, s.count > 1 {
                 composingItems.append(.text(String(s.dropLast())))
             }
+            candidates = []
         }
-        updateCandidates()
     }
 
-    /// 将当前缓冲区末尾的拼音段「坍缩」为确定的文本
-    private func finalizeLastPinyin(with text: String) {
-        guard let last = composingItems.last, case .pinyin = last else { return }
-        composingItems.removeLast()
-        composingItems.append(.text(text))
-        candidates = []  // 定字后清空当前段落的候选列表
+    // MARK: - 空格提交
+
+    /// 处理空格键：确认候选并上屏
+    private func handleSpace() -> String? {
+        guard !composingItems.isEmpty else { return nil }
+
+        if let first = candidates.first {
+            if focusIndex != nil {
+                // Tab 聚焦模式：只确认聚焦段，不上屏
+                confirmFocusedSegment(with: first)
+                return nil
+            } else {
+                // 正常模式：用候选替换整个拼音串，然后上屏全部
+                finalizeAllPinyin(with: first)
+                let result = composingItems.map { $0.content }.joined()
+                resetAll()
+                return result
+            }
+        } else if !composingItems.isEmpty {
+            // 无候选时，上屏原文
+            let result = rawContentForCommit()
+            resetAll()
+            return result
+        }
+        return nil
     }
 
-    /// 更新候选词列表：根据当前模式从对应词库检索
-    private func updateCandidates() {
-        guard let last = composingItems.last else {
+    // MARK: - 数字选词
+
+    /// 处理数字选词
+    private func handleNumber(_ index: Int) {
+        let actualIndex = index - 1
+        guard actualIndex >= 0 && actualIndex < candidates.count else { return }
+
+        if focusIndex != nil {
+            // Tab 聚焦模式：确认聚焦段
+            confirmFocusedSegment(with: candidates[actualIndex])
+        } else {
+            // 正常模式：用候选替换整个拼音串，不上屏
+            finalizeAllPinyin(with: candidates[actualIndex])
+        }
+    }
+
+    // MARK: - 以词定字
+
+    /// 处理以词定字
+    private func handleBracket(pickLast: Bool) {
+        guard let first = candidates.first,
+            let char = pickCharacter(from: first, pickLast: pickLast)
+        else { return }
+
+        if focusIndex != nil {
+            confirmFocusedSegment(with: char)
+        } else {
+            finalizeAllPinyin(with: char)
+        }
+    }
+
+    // MARK: - Tab 导航
+
+    /// 处理 Tab 键：在可编辑段之间移动焦点
+    private func handleTab(backward: Bool) {
+        let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
+        guard editableIndices.count > 1 else { return }
+
+        if let current = focusIndex {
+            // 已在聚焦模式，移动焦点
+            if let pos = editableIndices.firstIndex(of: current) {
+                let next =
+                    backward
+                    ? (pos - 1 + editableIndices.count) % editableIndices.count
+                    : (pos + 1) % editableIndices.count
+                focusIndex = editableIndices[next]
+            }
+        } else {
+            // 进入聚焦模式，聚焦第一个可编辑段
+            focusIndex = backward ? editableIndices.last : editableIndices.first
+        }
+
+        updateCandidatesForFocus()
+    }
+
+    // MARK: - 自动切分与重建
+
+    /// 根据 rawPinyin 重建可编辑的 composingItems
+    private func rebuildFromRawPinyin() {
+        // 保留前面已确定的 .text 项
+        let confirmedPrefix = composingItems.filter { !$0.isEditable }
+        composingItems = confirmedPrefix
+
+        guard !rawPinyin.isEmpty else {
             candidates = []
             return
         }
 
-        switch last {
-        case .pinyin(let s):
-            let store = (currentMode == .pinyin) ? zhStore : jaStore
-            candidates = store?.candidates(for: s) ?? []
-        case .text:
-            candidates = []
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+        let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
+
+        if syllables.count > 1 || (syllables.count == 1 && !remainder.isEmpty) {
+            // 多音节：已完成的音节变为 provisional，剩余部分为 pinyin
+            for syllable in syllables.dropLast(remainder.isEmpty ? 0 : 0) {
+                if remainder.isEmpty && syllable == syllables.last {
+                    // 最后一个音节且无剩余：它是活跃输入段
+                    composingItems.append(.pinyin(syllable))
+                } else {
+                    let best = store?.candidates(for: syllable).first ?? syllable
+                    composingItems.append(.provisional(pinyin: syllable, candidate: best))
+                }
+            }
+            if !remainder.isEmpty {
+                composingItems.append(.pinyin(remainder))
+            }
+        } else {
+            // 单音节或无法切分：保持为单个 pinyin 项
+            composingItems.append(.pinyin(rawPinyin))
         }
+
+        // 候选词：优先整串匹配
+        updateCandidatesWholeString()
+    }
+
+    /// 更新候选词：优先整串匹配，补充组合候选
+    private func updateCandidatesWholeString() {
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+
+        // 1. 整串匹配（去掉 apostrophe）
+        let cleanPinyin = rawPinyin.replacingOccurrences(of: "'", with: "")
+        let wholeMatches = store?.candidates(for: cleanPinyin) ?? []
+
+        // 2. 如果有多个音节，尝试组合候选
+        let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
+        var composed: String? = nil
+        if syllables.count > 1 && remainder.isEmpty {
+            // 所有音节都完整，尝试逐段匹配后组合
+            var parts: [String] = []
+            var canCompose = true
+            for syllable in syllables {
+                if let best = store?.candidates(for: syllable).first {
+                    parts.append(best)
+                } else {
+                    canCompose = false
+                    break
+                }
+            }
+            if canCompose {
+                composed = parts.joined()
+            }
+        }
+
+        // 3. 合并：整串匹配优先，组合候选补充（去重）
+        var result = wholeMatches
+        if let composed = composed, !result.contains(composed) {
+            result.append(composed)
+        }
+
+        // 4. 如果都没有，尝试最后一个活跃段的候选
+        if result.isEmpty {
+            if let lastPinyin = composingItems.last?.sourcePinyin {
+                result = store?.candidates(for: lastPinyin) ?? []
+            }
+        }
+
+        candidates = result
+    }
+
+    /// 为 Tab 聚焦段更新候选词
+    private func updateCandidatesForFocus() {
+        guard let idx = focusIndex, idx < composingItems.count else {
+            updateCandidatesWholeString()
+            return
+        }
+
+        let item = composingItems[idx]
+        guard let pinyin = item.sourcePinyin else {
+            candidates = []
+            return
+        }
+
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+        candidates = store?.candidates(for: pinyin) ?? []
+    }
+
+    // MARK: - 确认与提交辅助
+
+    /// 将整个拼音串替换为一个确定的文本（正常模式下选词/以词定字）
+    private func finalizeAllPinyin(with text: String) {
+        // 移除所有可编辑项
+        composingItems.removeAll { $0.isEditable }
+        composingItems.append(.text(text))
+        rawPinyin = ""
+        focusIndex = nil
+        candidates = []
+    }
+
+    /// 确认 Tab 聚焦段的候选，然后移动焦点或退出聚焦
+    private func confirmFocusedSegment(with text: String) {
+        guard let idx = focusIndex, idx < composingItems.count else { return }
+
+        composingItems[idx] = .text(text)
+
+        // 从 rawPinyin 中移除已确认段的拼音
+        rebuildRawPinyinFromItems()
+
+        // 如果没有更多可编辑段，退出聚焦模式
+        let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
+        if editableIndices.isEmpty {
+            focusIndex = nil
+            candidates = []
+        } else {
+            // 移动到下一个可编辑段
+            focusIndex = editableIndices.first { $0 > idx } ?? editableIndices.first
+            updateCandidatesForFocus()
+        }
+    }
+
+    /// 从 composingItems 中残存的可编辑项重建 rawPinyin
+    private func rebuildRawPinyinFromItems() {
+        rawPinyin = composingItems.compactMap { $0.sourcePinyin }.joined()
+    }
+
+    /// 获取用于 Enter 上屏的原文（拼音原文 + 已确定文本）
+    private func rawContentForCommit() -> String {
+        composingItems.map {
+            switch $0 {
+            case .text(let s): return s
+            case .pinyin(let s): return s
+            case .provisional(let pinyin, _): return pinyin
+            }
+        }.joined()
     }
 
     /// 重置所有状态：包括清空缓冲区和自动回退临时模式
     private func resetAll() {
         composingItems = []
         candidates = []
+        rawPinyin = ""
+        focusIndex = nil
         if currentMode == .transient { currentMode = .pinyin }
     }
 
