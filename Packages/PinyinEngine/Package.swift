@@ -15,7 +15,10 @@ let package = Package(
     targets: [
         .target(
             name: "PinyinEngine",
-            dependencies: []),
+            dependencies: [],
+            resources: [
+                .process("Resources")
+            ]),
         .testTarget(
             name: "PinyinEngineTests",
             dependencies: ["PinyinEngine"]),

@@ -11,44 +11,51 @@ public enum EngineEvent {
     case bracket(pickLast: Bool)
 }
 
+/// 输入模式：中文为默认持久模式，临时模式在提交后自动回退
+public enum InputMode: String {
+    case pinyin = "中文"
+    case transient = "日文"  // 当前扩展仅支持日文，未来可改为「扩展」
+}
+
 /// 引擎当前状态
 public struct EngineState {
     public let buffer: String
     public let candidates: [String]
     public let committedText: String?
+    public let mode: InputMode
 
-    public static let idle = EngineState(buffer: "", candidates: [], committedText: nil)
+    public static let idle = EngineState(
+        buffer: "", candidates: [], committedText: nil, mode: .pinyin)
 }
 
 /// PinyinEngine 核心逻辑
-/// 严格遵循「DESIGN.md」中的状态机蓝图实现。
 public class PinyinEngine {
-    // 模拟词库（增加日文支持）
-    private let baseDictionary: [String: [String]] = [
-        "a": ["啊", "阿", "呵"],
-        "paixu": ["排序"],
-        "wode": ["我的"],
-        "xiangfa": ["想法"],
-        "pinyin": ["拼音"],
-        "cihui": ["词汇"],
-        "zixia": ["紫霞", "子夏", "自下"],
-        "jiaohu": ["交互"],
-        "jisuan": ["计算"],
-        "shi": [
-            "是", "时", "事", "十", "使", "实", "市", "世", "式", "师", "试", "视", "史", "石", "食", "室", "始",
-            "示", "士", "适",
-        ],
-        // 日文测试数据 (前缀 j)
-        "jsaki": ["咲"],
-        "jshia": ["幸せ"],
-        "jtabe": ["食べる"],
-    ]
+    private var zhDictionary: [String: [String]] = [:]
+    private var jaDictionary: [String: [String]] = [:]
 
     // 内部状态
     private var buffer: String = ""
     private var candidates: [String] = []
+    private var currentMode: InputMode = .pinyin
 
-    public init() {}
+    public init() {
+        loadDictionaries()
+    }
+
+    private func loadDictionaries() {
+        zhDictionary = loadJSON(named: "zh_dict")
+        jaDictionary = loadJSON(named: "ja_dict")
+    }
+
+    private func loadJSON(named name: String) -> [String: [String]] {
+        guard let url = Bundle.module.url(forResource: name, withExtension: "json"),
+            let data = try? Data(contentsOf: url),
+            let dict = try? JSONDecoder().decode([String: [String]].self, from: data)
+        else {
+            return [:]
+        }
+        return dict
+    }
 
     /// 处理输入事件并返回新的状态快照
     public func process(_ event: EngineEvent) -> EngineState {
@@ -56,8 +63,14 @@ public class PinyinEngine {
 
         switch event {
         case .letter(let char):
-            buffer.append(char.lowercased())
-            updateCandidates()
+            let lowerChar = char.lowercased()
+            // 模式切换：仅在 Buffer 为空时，按下 'i' 切换
+            if buffer.isEmpty && lowerChar == "i" {
+                currentMode = (currentMode == .pinyin) ? .transient : .pinyin
+            } else {
+                buffer.append(lowerChar)
+                updateCandidates()
+            }
 
         case .backspace:
             if !buffer.isEmpty {
@@ -66,59 +79,64 @@ public class PinyinEngine {
             }
 
         case .esc:
-            reset()
+            resetBuffer()
 
         case .enter:
             if !buffer.isEmpty {
                 committedText = buffer
-                reset()
+                finalizeCommit()
             }
 
         case .space:
             if let first = candidates.first {
                 committedText = first
-                reset()
+                finalizeCommit()
             } else if !buffer.isEmpty {
-                // 如果没有候选词，空格上屏原始 Buffer
                 committedText = buffer
-                reset()
+                finalizeCommit()
             }
 
         case .number(let index):
             let actualIndex = index - 1
             if actualIndex >= 0 && actualIndex < candidates.count {
                 committedText = candidates[actualIndex]
-                reset()
+                finalizeCommit()
             }
 
         case .bracket(let pickLast):
             if let first = candidates.first {
                 committedText = pickCharacter(from: first, pickLast: pickLast)
-                reset()
+                finalizeCommit()
             }
         }
 
         return EngineState(
             buffer: buffer,
             candidates: candidates,
-            committedText: committedText
+            committedText: committedText,
+            mode: currentMode
         )
     }
-
-    // MARK: - 内部辅助
 
     private func updateCandidates() {
         if buffer.isEmpty {
             candidates = []
             return
         }
-
-        // 逻辑：直接从词库查询
-        // 未来这里会处理：j/vj 前缀的特殊分发，以及拼音切分
-        candidates = baseDictionary[buffer] ?? []
+        let dict = (currentMode == .pinyin) ? zhDictionary : jaDictionary
+        candidates = dict[buffer] ?? []
     }
 
-    private func reset() {
+    /// 核心逻辑：提交上屏后，若是临时模式则自动回退
+    private func finalizeCommit() {
+        buffer = ""
+        candidates = []
+        if currentMode == .transient {
+            currentMode = .pinyin
+        }
+    }
+
+    private func resetBuffer() {
         buffer = ""
         candidates = []
     }
@@ -130,10 +148,7 @@ public class PinyinEngine {
 
     // 兼容旧接口
     public func getCandidates(for pinyin: String) -> [String] {
-        return baseDictionary[pinyin.lowercased()] ?? []
-    }
-
-    public func pickCharacter(from candidate: String, pickLast: Bool) -> String {
-        return pickLast ? String(candidate.last!) : String(candidate.first!)
+        let dict = (currentMode == .pinyin) ? zhDictionary : jaDictionary
+        return dict[pinyin.lowercased()] ?? []
     }
 }

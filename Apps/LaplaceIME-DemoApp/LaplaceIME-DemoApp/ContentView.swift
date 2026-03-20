@@ -14,16 +14,17 @@ struct ContentView: View {
     @State private var resultText: String = ""
     @State private var candidates: [String] = []
     @State private var selectedIndex: Int = 0
+    @State private var currentModeName: String = "中文"
 
     // 核心引擎实例
     private let engine = PinyinEngine()
-    private let fixedBoxWidth: CGFloat = 400.0
+    private let fixedBoxWidth: CGFloat = 600.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // --- 核心仿真区 (候选框 + 输入框) ---
             VStack(alignment: .leading, spacing: 4) {
-                // 1. 候选面板：紧贴在输入框上方，内容左对齐
+                // 1. 候选面板
                 ZStack(alignment: .bottomLeading) {
                     if !candidates.isEmpty {
                         CandidatePanelView(
@@ -36,7 +37,7 @@ struct ContentView: View {
                 }
                 .frame(width: fixedBoxWidth, height: 50, alignment: .leading)
 
-                // 2. 仿真输入框：宽度与候选框保持一致
+                // 2. 仿真输入框
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
@@ -50,6 +51,17 @@ struct ContentView: View {
                         Rectangle()
                             .fill(Color.accentColor)
                             .frame(width: 2, height: 24)
+
+                        Spacer()
+
+                        // 显示当前模式
+                        Text(currentModeName)
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.1))
+                            .foregroundColor(.accentColor)
+                            .cornerRadius(4)
                     }
                     .padding(.horizontal, 12)
 
@@ -61,12 +73,12 @@ struct ContentView: View {
                 .frame(width: fixedBoxWidth, height: 44)
             }
             .padding(.top, 40)
-            .padding(.leading, 20)  // 仿真区靠左留白
+            .padding(.leading, 20)
             .padding(.bottom, 20)
 
             Divider()
 
-            // 3. 底部：最终结果展示区 (Output Document)
+            // 3. 底部：最终结果展示区
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("仿真上屏结果 (Output Document)")
@@ -132,6 +144,7 @@ struct ContentView: View {
     private func apply(_ state: EngineState) {
         pinyinBuffer = state.buffer
         candidates = state.candidates
+        currentModeName = state.mode.rawValue
         selectedIndex = 0
 
         if let committed = state.committedText {
@@ -147,7 +160,7 @@ struct CandidatePanelView: View {
     let selectedIndex: Int
 
     var body: some View {
-        HStack(spacing: 8) {  // 使用紧凑的固定间距
+        HStack(spacing: 8) {
             ForEach(0..<min(candidates.count, 9), id: \.self) { index in
                 HStack(spacing: 4) {
                     Text("\(index + 1)")
@@ -164,7 +177,7 @@ struct CandidatePanelView: View {
                         .fill(selectedIndex == index ? Color.accentColor : Color.clear)
                 )
             }
-            Spacer(minLength: 0)  // 强制所有内容靠左，剩余空间留白
+            Spacer(minLength: 0)
         }
         .padding(6)
         .background(
