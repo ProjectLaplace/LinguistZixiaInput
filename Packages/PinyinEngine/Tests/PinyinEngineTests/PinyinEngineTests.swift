@@ -201,7 +201,7 @@ final class PinyinEngineTests: XCTestCase {
         let state = type("shijian")
         // "shijian" should auto-split into provisional("shi") + pinyin("jian")
         XCTAssertEqual(state.items.count, 2)
-        XCTAssertEqual(state.items[0], .provisional(pinyin: "shi", candidate: "是"))
+        XCTAssertEqual(state.items[0], .pinyin("shi"))
         XCTAssertEqual(state.items[1], .pinyin("jian"))
         // Whole-string match "时间" should be first candidate
         XCTAssertEqual(state.candidates.first, "时间")
@@ -224,18 +224,19 @@ final class PinyinEngineTests: XCTestCase {
     func testAutoSplitLongPhraseComposition() {
         // "kaifajishu" — no whole-string match, but per-syllable composition works
         let state = type("kaifajishu")
-        // Should have provisional items for completed syllables
+        // Should auto-split into multiple pinyin segments
         XCTAssertTrue(state.items.count > 1, "Should auto-split into multiple segments")
-        // Composed candidate should exist: 开发 + 技术 or 开 + 发 + 技 + 术
-        let display = state.fullDisplayBuffer
-        XCTAssertFalse(display == "kaifajishu", "Should show Chinese preview, not raw pinyin")
+        // Buffer shows pinyin, not Chinese preview
+        XCTAssertTrue(state.items.allSatisfy { $0.isPinyin }, "All items should be pinyin")
+        // Composed candidate should exist in candidate list
+        XCTAssertFalse(state.candidates.isEmpty, "Should have composed candidates")
     }
 
     func testAutoSplitPartialInput() {
         // "shij" — "shi" is complete, "j" is partial remainder
         let state = type("shij")
         XCTAssertEqual(state.items.count, 2)
-        XCTAssertEqual(state.items[0], .provisional(pinyin: "shi", candidate: "是"))
+        XCTAssertEqual(state.items[0], .pinyin("shi"))
         XCTAssertEqual(state.items[1], .pinyin("j"))
     }
 
@@ -273,21 +274,41 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertNotNil(state.focusedSegmentIndex)
     }
 
+    func testTabDoesNotAutoConfirmOtherSegments() {
+        type("shijian")
+        let state = tab()  // focus on first segment "shi"
+        // Non-focused segment "jian" should remain .pinyin, not be auto-confirmed
+        XCTAssertEqual(state.items, [.pinyin("shi"), .pinyin("jian")])
+        XCTAssertEqual(state.focusedSegmentIndex, 0)
+    }
+
     func testSpaceInTabModeConfirmsSegment() {
         type("shijian")
         tab()  // focus on first segment "shi"
         let state = space()  // confirm with first candidate
         // Should NOT commit to output, just confirm the segment
         XCTAssertNil(state.committedText)
-        // The focused segment should now be .text
-        XCTAssertTrue(state.items.contains(.text("是")))
+        // The confirmed segment should be .text, other stays .pinyin
+        XCTAssertEqual(state.items[0], .text("是"))
+        XCTAssertEqual(state.items[1], .pinyin("jian"))
+        // Focus should advance to "jian"
+        XCTAssertEqual(state.focusedSegmentIndex, 1)
     }
 
     func testShiftTabNavigatesBackward() {
         type("shijian")
         let state = shiftTab()
         // Should focus on the last editable segment
-        XCTAssertNotNil(state.focusedSegmentIndex)
+        XCTAssertEqual(state.focusedSegmentIndex, 1)
+    }
+
+    func testTabNavigationNotStuckAfterEntry() {
+        type("shijian")
+        tab()  // focus on first segment
+        let state = tab()  // move to second segment
+        XCTAssertEqual(state.focusedSegmentIndex, 1)
+        let state2 = shiftTab()  // move back to first
+        XCTAssertEqual(state2.focusedSegmentIndex, 0)
     }
 
     // MARK: - Apostrophe Separation (撇号分隔)

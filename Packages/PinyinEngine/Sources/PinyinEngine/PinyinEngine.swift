@@ -306,7 +306,7 @@ public class PinyinEngine {
     /// 处理 Tab 键：在可编辑段之间移动焦点
     private func handleTab(backward: Bool) {
         let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
-        guard editableIndices.count > 1 else { return }
+        guard !editableIndices.isEmpty else { return }
 
         if let current = focusIndex {
             // 已在聚焦模式，移动焦点
@@ -318,8 +318,8 @@ public class PinyinEngine {
                 focusIndex = editableIndices[next]
             }
         } else {
-            // 进入聚焦模式，聚焦第一个可编辑段
-            focusIndex = backward ? editableIndices.last : editableIndices.first
+            // 进入聚焦模式：聚焦目标段，不修改其他段
+            focusIndex = backward ? editableIndices.last! : editableIndices.first!
         }
 
         updateCandidatesForFocus()
@@ -374,19 +374,12 @@ public class PinyinEngine {
             return
         }
 
-        let store = (currentMode == .pinyin) ? zhStore : jaStore
         let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
 
         if syllables.count > 1 || (syllables.count == 1 && !remainder.isEmpty) {
-            // 多音节：已完成的音节变为 provisional，剩余部分为 pinyin
-            for syllable in syllables.dropLast(remainder.isEmpty ? 0 : 0) {
-                if remainder.isEmpty && syllable == syllables.last {
-                    // 最后一个音节且无剩余：它是活跃输入段
-                    composingItems.append(.pinyin(syllable))
-                } else {
-                    let best = store?.candidates(for: syllable).first ?? syllable
-                    composingItems.append(.provisional(pinyin: syllable, candidate: best))
-                }
+            // 多音节：每个音节段都显示为拼音
+            for syllable in syllables {
+                composingItems.append(.pinyin(syllable))
             }
             if !remainder.isEmpty {
                 composingItems.append(.pinyin(remainder))
