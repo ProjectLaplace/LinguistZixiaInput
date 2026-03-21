@@ -563,9 +563,11 @@ public class PinyinEngine {
 
     // MARK: - 用户词典学习
 
-    /// 将多字词保存到用户词典
+    /// 将多字词保存到用户词典（仅当内容全为汉字时才学习）
     private func learnPhrase(pinyin: String, word: String) {
-        guard word.count > 1 else { return }
+        guard word.count > 1,
+              word.allSatisfy({ !$0.isASCII })
+        else { return }
         userDict?.save(pinyin: pinyin, word: word)
     }
 
