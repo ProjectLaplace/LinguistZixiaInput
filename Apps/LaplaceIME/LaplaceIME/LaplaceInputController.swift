@@ -20,12 +20,15 @@ class LaplaceInputController: IMKInputController {
         "~", "$", "^", "_", "`",
     ]
     private static var candidatesWindow: IMKCandidates = {
-        let candidates = IMKCandidates(server: NSApp.delegate is AppDelegate
-            ? (NSApp.delegate as! AppDelegate).server
-            : nil,
+        let candidates = IMKCandidates(
+            server: NSApp.delegate is AppDelegate
+                ? (NSApp.delegate as! AppDelegate).server
+                : nil,
             panelType: kIMKSingleRowSteppingCandidatePanel)
         return candidates!
     }()
+
+    private static let indicator = LaplaceIndicator()
 
     // MARK: - 按键处理
 
@@ -51,7 +54,8 @@ class LaplaceInputController: IMKInputController {
         applyState(to: client)
 
         // 如果处理前后缓冲区都为空，说明这个事件对引擎无意义，交给系统
-        if previousItems.isEmpty && currentState.items.isEmpty && currentState.committedText == nil {
+        if previousItems.isEmpty && currentState.items.isEmpty && currentState.committedText == nil
+        {
             return false
         }
 
@@ -96,21 +100,29 @@ class LaplaceInputController: IMKInputController {
     private func applyState(to client: any IMKTextInput) {
         // 上屏已提交的文本
         if let committed = currentState.committedText {
-            client.insertText(committed, replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
+            client.insertText(
+                committed, replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
         }
 
         // 更新 marked text（组合缓冲区）
         let items = currentState.items
         if items.isEmpty {
-            client.setMarkedText("", selectionRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
+            client.setMarkedText(
+                "", selectionRange: NSRange(location: 0, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
         } else {
             let display = buildMarkedText()
             let len = (display.string as NSString).length
-            client.setMarkedText(display, selectionRange: NSRange(location: len, length: 0), replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
+            client.setMarkedText(
+                display, selectionRange: NSRange(location: len, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: NSNotFound))
         }
 
         // 更新候选窗口
         updateCandidates()
+
+        // 更新浮动指示器
+        updateIndicator(client: client)
     }
 
     /// 构建带样式的 marked text
@@ -182,5 +194,61 @@ class LaplaceInputController: IMKInputController {
             window.show()
         }
         // Buffer non-empty but no candidates (partial syllable) — keep showing previous candidates
+    }
+
+    // MARK: - 浮动指示器
+
+    private func updateIndicator(client: any IMKTextInput) {
+        if currentState.items.isEmpty {
+            Self.indicator.hide()
+        } else {
+            var cursorRect = NSRect.zero
+            client.attributes(forCharacterIndex: 0, lineHeightRectangle: &cursorRect)
+            Self.indicator.show(near: cursorRect)
+        }
+    }
+}
+
+// MARK: - 浮动指示器窗口
+
+class LaplaceIndicator {
+    private let panel: NSPanel
+    private let label: NSTextField
+
+    init() {
+        let size = NSSize(width: 28, height: 20)
+        panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        panel.level = .popUpMenu
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+
+        label = NSTextField(labelWithString: "LP")
+        label.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        label.textColor = .white
+        label.alignment = .center
+        label.frame = NSRect(origin: .zero, size: size)
+        label.wantsLayer = true
+        label.layer?.backgroundColor = NSColor.systemPurple.cgColor
+        label.layer?.cornerRadius = 4
+
+        panel.contentView = label
+    }
+
+    func show(near cursorRect: NSRect) {
+        let x = cursorRect.origin.x + 400
+        let y = cursorRect.origin.y - 24
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        panel.orderFront(nil)
+    }
+
+    func hide() {
+        panel.orderOut(nil)
     }
 }
