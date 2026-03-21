@@ -415,8 +415,8 @@ public class PinyinEngine {
     private func updateCandidatesWholeString() {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
-        // 1. 整串精确匹配（去掉 apostrophe）
-        let cleanPinyin = rawPinyin.replacingOccurrences(of: "'", with: "")
+        // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
+        let cleanPinyin = Self.normalizePinyin(rawPinyin.replacingOccurrences(of: "'", with: ""))
         var wholeMatches = store?.candidates(for: cleanPinyin) ?? []
 
         let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
@@ -442,7 +442,8 @@ public class PinyinEngine {
             var parts: [String] = []
             var canCompose = true
             for syllable in syllables {
-                if let best = store?.candidates(for: syllable).first {
+                let normalized = Self.normalizePinyin(syllable)
+                if let best = store?.candidates(for: normalized).first {
                     parts.append(best)
                 } else {
                     canCompose = false
@@ -476,7 +477,7 @@ public class PinyinEngine {
         // 7. 如果仍然没有，尝试最后一个活跃段的候选
         if result.isEmpty {
             if let lastPinyin = composingItems.last?.sourcePinyin {
-                result = store?.candidates(for: lastPinyin) ?? []
+                result = store?.candidates(for: Self.normalizePinyin(lastPinyin)) ?? []
             }
         }
 
@@ -497,7 +498,7 @@ public class PinyinEngine {
         }
 
         let store = (currentMode == .pinyin) ? zhStore : jaStore
-        candidates = store?.candidates(for: pinyin) ?? []
+        candidates = store?.candidates(for: Self.normalizePinyin(pinyin)) ?? []
     }
 
     // MARK: - 确认与提交辅助
@@ -563,6 +564,14 @@ public class PinyinEngine {
     private func pickCharacter(from candidate: String, pickLast: Bool) -> String? {
         guard !candidate.isEmpty else { return nil }
         return pickLast ? String(candidate.last!) : String(candidate.first!)
+    }
+
+    /// 将拼音中 u 作为 ü 的替代写法规范化为 v（仅限 l/n 声母后的 ue→ve）
+    private static func normalizePinyin(_ pinyin: String) -> String {
+        var result = pinyin
+        result = result.replacingOccurrences(of: "lue", with: "lve")
+        result = result.replacingOccurrences(of: "nue", with: "nve")
+        return result
     }
 
     // MARK: - 用户词典学习

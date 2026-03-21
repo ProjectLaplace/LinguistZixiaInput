@@ -76,8 +76,9 @@ public enum PinyinSplitter {
         }
 
         // v-finals for n/l (nv, lv, nve, lve)
+        // Also accept u-spelling (lue, nue) as ü alternatives
         for initial in ["n", "l"] {
-            for final_ in ["v", "ve"] {
+            for final_ in ["v", "ve", "ue"] {
                 result.insert(initial + final_)
             }
         }

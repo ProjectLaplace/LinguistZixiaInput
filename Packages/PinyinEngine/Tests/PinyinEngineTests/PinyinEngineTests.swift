@@ -333,6 +333,27 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(state.committedText, "想法")
     }
 
+    // MARK: - ü Alternative Spelling (u 代替 ü)
+
+    func testUAsUmlautForLue() {
+        // "hulue" should match "hulve" → 忽略
+        let state = type("hulue")
+        XCTAssertTrue(state.candidates.contains("忽略"), "hulue should match 忽略 (stored as hulve)")
+    }
+
+    func testUAsUmlautForNue() {
+        // "nue" should match "nve" → 虐
+        let state = type("nue")
+        XCTAssertFalse(state.candidates.isEmpty, "nue should produce candidates")
+    }
+
+    func testUAsUmlautDoesNotBreakRegularLu() {
+        // "lu" is a valid syllable (路/陆), should still work
+        let state = type("lu")
+        XCTAssertFalse(state.candidates.isEmpty, "lu should still produce candidates")
+        XCTAssertEqual(state.candidates.first, "路")
+    }
+
     // MARK: - Apostrophe Separation (撇号分隔)
 
     func testApostropheSeparationCandidates() {
