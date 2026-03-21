@@ -7,6 +7,7 @@ public class DictionaryStore {
     private var db: OpaquePointer?
     private var queryStmt: OpaquePointer?
     private var prefixStmt: OpaquePointer?
+    private var topStmt: OpaquePointer?
 
     /// Open a SQLite dictionary database at the given file path.
     /// - Parameter path: Absolute path to the .db file
@@ -26,11 +27,18 @@ public class DictionaryStore {
         if sqlite3_prepare_v2(db, prefixSql, -1, &prefixStmt, nil) != SQLITE_OK {
             prefixStmt = nil
         }
+
+        // Top candidate with frequency
+        let topSql = "SELECT word, frequency FROM entries WHERE pinyin = ? ORDER BY frequency DESC LIMIT 1"
+        if sqlite3_prepare_v2(db, topSql, -1, &topStmt, nil) != SQLITE_OK {
+            topStmt = nil
+        }
     }
 
     deinit {
         if let queryStmt = queryStmt { sqlite3_finalize(queryStmt) }
         if let prefixStmt = prefixStmt { sqlite3_finalize(prefixStmt) }
+        if let topStmt = topStmt { sqlite3_finalize(topStmt) }
         if let db = db { sqlite3_close(db) }
     }
 
@@ -50,6 +58,24 @@ public class DictionaryStore {
             }
         }
         return results
+    }
+
+    /// Look up the top candidate with its frequency for exact pinyin match.
+    /// - Parameter pinyin: The pinyin key
+    /// - Returns: (word, frequency) tuple, or nil if no match
+    public func topCandidate(for pinyin: String) -> (word: String, frequency: Int)? {
+        guard let stmt = topStmt else { return nil }
+
+        sqlite3_reset(stmt)
+        sqlite3_bind_text(stmt, 1, pinyin, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let cStr = sqlite3_column_text(stmt, 0)
+        else { return nil }
+
+        let word = String(cString: cStr)
+        let frequency = Int(sqlite3_column_int64(stmt, 1))
+        return (word, frequency)
     }
 
     /// Look up candidate words whose pinyin starts with the given prefix.

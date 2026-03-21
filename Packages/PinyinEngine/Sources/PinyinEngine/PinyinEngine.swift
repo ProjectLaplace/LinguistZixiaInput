@@ -392,39 +392,37 @@ public class PinyinEngine {
             return
         }
 
-        let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
+        // 先用 PinyinSplitter 做默认切分（用于显示）
+        let (defaultSyllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
 
-        if syllables.count > 1 || (syllables.count == 1 && !remainder.isEmpty) {
-            // 多音节：每个音节段都显示为拼音
-            for syllable in syllables {
+        if defaultSyllables.count > 1 || (defaultSyllables.count == 1 && !remainder.isEmpty) {
+            for syllable in defaultSyllables {
                 composingItems.append(.pinyin(syllable))
             }
             if !remainder.isEmpty {
                 composingItems.append(.pinyin(remainder))
             }
         } else {
-            // 单音节或无法切分：保持为单个 pinyin 项
             composingItems.append(.pinyin(rawPinyin))
         }
 
         // 候选词：优先整串匹配
-        updateCandidatesWholeString()
+        updateCandidatesWholeString(defaultSyllables: defaultSyllables, remainder: remainder)
     }
 
-    /// 更新候选词：系统整串 → 用户词典 → 自动组合 → 前缀 → 末段兜底
-    private func updateCandidatesWholeString() {
+    /// 更新候选词：系统整串 → 用户词典 → 统一 DP 组词 → 前缀 → 末段兜底
+    private func updateCandidatesWholeString(defaultSyllables: [String], remainder: String) {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
         // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
         let cleanPinyin = Self.normalizePinyin(rawPinyin.replacingOccurrences(of: "'", with: ""))
         var wholeMatches = store?.candidates(for: cleanPinyin) ?? []
 
-        let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
         let hasApostrophe = rawPinyin.contains("'")
 
         // 用户用撇号显式分隔时，按音节数过滤整串匹配结果
-        if hasApostrophe && syllables.count > 1 {
-            wholeMatches = wholeMatches.filter { $0.count == syllables.count }
+        if hasApostrophe && defaultSyllables.count > 1 {
+            wholeMatches = wholeMatches.filter { $0.count == defaultSyllables.count }
         }
 
         // 2. 用户词典匹配（精确 + 前缀），紧随系统整串之后
@@ -436,10 +434,13 @@ public class PinyinEngine {
             }
         }
 
-        // 3. 自动组合候选（贪心最长短语匹配）
+        // 3. 统一 DP 组词（同时优化音节切分和词库匹配）
+        // 仅影响候选词，不改变 composingItems 的显示切分
         var composed: String? = nil
-        if syllables.count > 1 && remainder.isEmpty {
-            composed = greedyCompose(syllables: syllables, store: store)
+        if remainder.isEmpty && defaultSyllables.count > 1 {
+            if let result = unifiedCompose(cleanPinyin, store: store) {
+                composed = result.text
+            }
         }
 
         // 4. 合并：系统整串 → 用户词典（去重）
@@ -474,7 +475,8 @@ public class PinyinEngine {
     /// 为 Tab 聚焦段更新候选词
     private func updateCandidatesForFocus() {
         guard let idx = focusIndex, idx < composingItems.count else {
-            updateCandidatesWholeString()
+            let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
+            updateCandidatesWholeString(defaultSyllables: syllables, remainder: remainder)
             return
         }
 
@@ -574,48 +576,114 @@ public class PinyinEngine {
         userDict?.save(pinyin: pinyin, word: word)
     }
 
-    // MARK: - 贪心组词
+    // MARK: - 统一切分组词 DP
 
-    /// 使用 DP 匹配最优词库短语组合。
-    /// 优先减少单字数量，其次减少总词数。
-    /// 例如 ["jian","cha","yi","xia"] → "检查" + "一下" = "检查一下"
-    private func greedyCompose(syllables: [String], store: DictionaryStore?) -> String? {
-        guard let store = store, !syllables.isEmpty else { return nil }
-        let n = syllables.count
+    /// 统一音节切分与词库组词的单趟 DP。
+    /// 直接在原始拼音字符串上操作，同时决定音节边界和短语匹配。
+    /// 使用词频对数之和作为评分，选择整体最自然的组合。
+    ///
+    /// 例如 "jianchayixiane":
+    ///   两阶段法: split→["jian","cha","yi","xian","e"] → 检查仪限额
+    ///   统一 DP:  检查(580k)+一下(501k)+呢(高频) >> 检查仪(4k)+限额(138k)
+    ///
+    /// - Parameters:
+    ///   - input: 原始拼音字符串（不含撇号，已小写）
+    ///   - store: 词库
+    /// - Returns: (组词结果, 音节切分) 或 nil（无法完全覆盖）
+    private func unifiedCompose(_ input: String, store: DictionaryStore?)
+        -> (text: String, syllables: [String])?
+    {
+        guard let store = store, !input.isEmpty else { return nil }
 
-        // dp[i] = (words, singleCharCount) for best split of syllables[i..<n]
-        var dpWords: [[String]?] = Array(repeating: nil, count: n + 1)
-        var dpSingles: [Int] = Array(repeating: 0, count: n + 1)
-        dpWords[n] = []
+        let chars = Array(input)
+        let n = chars.count
 
+        struct DPState {
+            var words: [String]
+            var syllables: [String]
+            var multiCharScore: Double  // 多字词 log(freq) 之和（主排序键）
+            var totalScore: Double      // 全部词 log(freq) 之和（次排序键）
+            var sylCount: Int
+        }
+
+        var dp: [DPState?] = Array(repeating: nil, count: n + 1)
+        dp[n] = DPState(words: [], syllables: [], multiCharScore: 0, totalScore: 0, sylCount: 0)
+
+        // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
-            for len in 1...(n - pos) {
-                let pinyin = Self.normalizePinyin(syllables[pos..<(pos + len)].joined())
-                guard let word = store.candidates(for: pinyin).first,
-                      let rest = dpWords[pos + len] else { continue }
+            enumeratePhrases(chars: chars, from: pos, store: store) {
+                word, frequency, syllables, endPos in
+                guard let rest = dp[endPos] else { return }
 
-                let singles = dpSingles[pos + len] + (word.count == 1 ? 1 : 0)
-                let totalParts = 1 + rest.count
+                let wordScore = log(Double(max(frequency, 1)))
+                let isMultiChar = word.count >= 2
+                let multiCharScore = (isMultiChar ? wordScore : 0) + rest.multiCharScore
+                let totalScore = wordScore + rest.totalScore
+                let totalSyls = syllables.count + rest.sylCount
 
-                if let existing = dpWords[pos] {
-                    let existingSingles = dpSingles[pos]
-                    let existingParts = existing.count
-                    // Prefer fewer singles, then fewer total parts
-                    if singles < existingSingles
-                        || (singles == existingSingles && totalParts < existingParts)
+                let candidate = DPState(
+                    words: [word] + rest.words,
+                    syllables: syllables + rest.syllables,
+                    multiCharScore: multiCharScore,
+                    totalScore: totalScore,
+                    sylCount: totalSyls)
+
+                if let existing = dp[pos] {
+                    // 主键：多字词频分之和越高越好
+                    // 次键：总频分之和越高越好
+                    if multiCharScore > existing.multiCharScore
+                        || (multiCharScore == existing.multiCharScore
+                            && totalScore > existing.totalScore)
                     {
-                        dpWords[pos] = [word] + rest
-                        dpSingles[pos] = singles
+                        dp[pos] = candidate
                     }
                 } else {
-                    dpWords[pos] = [word] + rest
-                    dpSingles[pos] = singles
+                    dp[pos] = candidate
                 }
             }
         }
 
-        guard let words = dpWords[0] else { return nil }
-        return words.joined()
+        guard let best = dp[0] else { return nil }
+        return (best.words.joined(), best.syllables)
+    }
+
+    /// 枚举从 pos 开始的所有合法短语：用 DFS 尝试连续音节组合并查词库。
+    /// 每找到一个词库匹配就回调 (word, frequency, syllables, endPos)。
+    private func enumeratePhrases(
+        chars: [Character], from startPos: Int, store: DictionaryStore,
+        callback: (String, Int, [String], Int) -> Void
+    ) {
+        let n = chars.count
+        let maxSyl = PinyinSplitter.maxSyllableLength
+
+        func dfs(_ curPos: Int, _ accPinyin: String, _ accSyllables: [String]) {
+            guard curPos < n else { return }
+
+            let remaining = n - curPos
+            let maxLen = min(remaining, maxSyl)
+
+            for sylLen in 1...maxLen {
+                let syllable = String(chars[curPos..<(curPos + sylLen)])
+                let normalized = Self.normalizePinyin(syllable)
+                guard PinyinSplitter.validSyllables.contains(normalized)
+                    || PinyinSplitter.validSyllables.contains(syllable)
+                else { continue }
+
+                let newPinyin = accPinyin + normalized
+                let newSyllables = accSyllables + [syllable]
+                let newPos = curPos + sylLen
+
+                // 查词库，获取词和词频
+                if let top = store.topCandidate(for: newPinyin) {
+                    callback(top.word, top.frequency, newSyllables, newPos)
+                }
+
+                // 继续延伸，尝试更长的短语
+                dfs(newPos, newPinyin, newSyllables)
+            }
+        }
+
+        dfs(startPos, "", [])
     }
 
     // MARK: - 兼容性接口

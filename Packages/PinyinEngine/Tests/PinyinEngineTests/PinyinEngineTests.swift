@@ -272,6 +272,14 @@ final class PinyinEngineTests: XCTestCase {
             "DP composition should produce 完全胡说")
     }
 
+    func testUnifiedDPCrossesSyllableBoundary() {
+        // "jianchayixiane" — two-stage approach splits "xian"+"e" → 检查仪限额
+        // unified DP should prefer "xia"+"ne" because it enables 一下+呢 → 检查一下呢
+        let state = type("jianchayixiane")
+        XCTAssertTrue(state.candidates.contains("检查一下呢"),
+            "Unified DP should produce 检查一下呢 by choosing xia+ne over xian+e")
+    }
+
     func testAutoSplitPartialInput() {
         // "shij" — "shi" is complete, "j" is partial remainder
         let state = type("shij")
