@@ -16,7 +16,7 @@ class LaplaceInputController: IMKInputController {
 
     private static let punctuationChars: Set<Character> = [
         ",", ".", ";", ":", "?", "!", "\\",
-        "(", ")", "<", ">", "\"",
+        "(", ")", "{", "}", "<", ">", "\"",
         "~", "$", "^", "_", "`",
     ]
     private static var candidatesWindow: IMKCandidates = {

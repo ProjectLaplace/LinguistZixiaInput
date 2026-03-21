@@ -22,7 +22,7 @@ struct ContentView: View {
     private let fixedBoxWidth: CGFloat = 600.0
     private let punctuationChars: Set<Character> = [
         ",", ".", ";", ":", "?", "!", "\\",
-        "(", ")", "<", ">", "\"",
+        "(", ")", "{", "}", "<", ">", "\"",
         "~", "$", "^", "_", "`",
     ]
 
