@@ -173,11 +173,14 @@ class LaplaceInputController: IMKInputController {
 
     private func updateCandidates() {
         let window = Self.candidatesWindow
-        if currentState.candidates.isEmpty {
+        if currentState.items.isEmpty {
+            // Buffer cleared — hide the window
             window.hide()
-        } else {
+        } else if !currentState.candidates.isEmpty {
+            // New candidates available — update and show
             window.update()
             window.show()
         }
+        // Buffer non-empty but no candidates (partial syllable) — keep showing previous candidates
     }
 }

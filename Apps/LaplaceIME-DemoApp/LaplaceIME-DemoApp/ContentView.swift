@@ -196,10 +196,15 @@ struct ContentView: View {
 
     private func apply(_ state: EngineState) {
         composingItems = state.items
-        candidates = state.candidates
         currentModeName = state.mode.rawValue
         selectedIndex = 0
         focusedSegmentIndex = state.focusedSegmentIndex
+
+        // Only update candidates when new ones are available or buffer is cleared.
+        // This prevents flickering during intermediate states (partial syllables with no matches).
+        if state.items.isEmpty || !state.candidates.isEmpty {
+            candidates = state.candidates
+        }
 
         if let committed = state.committedText {
             resultText += committed
