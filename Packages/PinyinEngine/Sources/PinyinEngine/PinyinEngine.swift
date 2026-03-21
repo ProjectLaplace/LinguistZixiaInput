@@ -436,23 +436,10 @@ public class PinyinEngine {
             }
         }
 
-        // 3. 自动组合候选
+        // 3. 自动组合候选（贪心最长短语匹配）
         var composed: String? = nil
         if syllables.count > 1 && remainder.isEmpty {
-            var parts: [String] = []
-            var canCompose = true
-            for syllable in syllables {
-                let normalized = Self.normalizePinyin(syllable)
-                if let best = store?.candidates(for: normalized).first {
-                    parts.append(best)
-                } else {
-                    canCompose = false
-                    break
-                }
-            }
-            if canCompose {
-                composed = parts.joined()
-            }
+            composed = greedyCompose(syllables: syllables, store: store)
         }
 
         // 4. 合并：系统整串 → 用户词典（去重）
@@ -580,6 +567,50 @@ public class PinyinEngine {
     private func learnPhrase(pinyin: String, word: String) {
         guard word.count > 1 else { return }
         userDict?.save(pinyin: pinyin, word: word)
+    }
+
+    // MARK: - 贪心组词
+
+    /// 使用 DP 匹配最优词库短语组合。
+    /// 优先减少单字数量，其次减少总词数。
+    /// 例如 ["jian","cha","yi","xia"] → "检查" + "一下" = "检查一下"
+    private func greedyCompose(syllables: [String], store: DictionaryStore?) -> String? {
+        guard let store = store, !syllables.isEmpty else { return nil }
+        let n = syllables.count
+
+        // dp[i] = (words, singleCharCount) for best split of syllables[i..<n]
+        var dpWords: [[String]?] = Array(repeating: nil, count: n + 1)
+        var dpSingles: [Int] = Array(repeating: 0, count: n + 1)
+        dpWords[n] = []
+
+        for pos in stride(from: n - 1, through: 0, by: -1) {
+            for len in 1...(n - pos) {
+                let pinyin = Self.normalizePinyin(syllables[pos..<(pos + len)].joined())
+                guard let word = store.candidates(for: pinyin).first,
+                      let rest = dpWords[pos + len] else { continue }
+
+                let singles = dpSingles[pos + len] + (word.count == 1 ? 1 : 0)
+                let totalParts = 1 + rest.count
+
+                if let existing = dpWords[pos] {
+                    let existingSingles = dpSingles[pos]
+                    let existingParts = existing.count
+                    // Prefer fewer singles, then fewer total parts
+                    if singles < existingSingles
+                        || (singles == existingSingles && totalParts < existingParts)
+                    {
+                        dpWords[pos] = [word] + rest
+                        dpSingles[pos] = singles
+                    }
+                } else {
+                    dpWords[pos] = [word] + rest
+                    dpSingles[pos] = singles
+                }
+            }
+        }
+
+        guard let words = dpWords[0] else { return nil }
+        return words.joined()
     }
 
     // MARK: - 兼容性接口

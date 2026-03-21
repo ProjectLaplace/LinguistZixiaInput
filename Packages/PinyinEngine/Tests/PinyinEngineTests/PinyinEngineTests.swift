@@ -8,7 +8,9 @@ final class PinyinEngineTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        engine = PinyinEngine()
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
+        engine = PinyinEngine(zhDictPath: zhPath, jaDictPath: jaPath)
     }
 
     // MARK: - Helpers
@@ -230,6 +232,16 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertTrue(state.items.allSatisfy { $0.isPinyin }, "All items should be pinyin")
         // Composed candidate should exist in candidate list
         XCTAssertFalse(state.candidates.isEmpty, "Should have composed candidates")
+    }
+
+    func testGreedyPhraseComposition() {
+        // "jianchayixia" — greedy should match jiancha(检查) + yixia(一下)
+        // not jian(见) + cha(差) + yi(一) + xia(下)
+        let state = type("jianchayixia")
+        XCTAssertTrue(state.candidates.contains("检查一下"),
+            "Greedy composition should produce 检查一下")
+        XCTAssertFalse(state.candidates.contains("见差一下"),
+            "Per-syllable 见差一下 should not appear")
     }
 
     func testAutoSplitPartialInput() {
