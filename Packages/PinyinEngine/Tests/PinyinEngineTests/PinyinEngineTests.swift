@@ -235,13 +235,41 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testGreedyPhraseComposition() {
-        // "jianchayixia" — greedy should match jiancha(检查) + yixia(一下)
-        // not jian(见) + cha(差) + yi(一) + xia(下)
+        // "jianchayixia" — DP should match jiancha(检查) + yixia(一下)
+        // not jianchayi(检查仪) + xia(下) or per-syllable jian+cha+yi+xia
         let state = type("jianchayixia")
         XCTAssertTrue(state.candidates.contains("检查一下"),
-            "Greedy composition should produce 检查一下")
+            "DP composition should produce 检查一下")
         XCTAssertFalse(state.candidates.contains("见差一下"),
             "Per-syllable 见差一下 should not appear")
+    }
+
+    func testWholeStringMatchTakesPriorityOverComposition() {
+        // "shijian" has whole-string match 时间 — should be first, not composed 是见
+        let state = type("shijian")
+        XCTAssertEqual(state.candidates.first, "时间")
+    }
+
+    func testCompositionWithPartialRemainderSkipped() {
+        // "kaifaj" — remainder "j" is incomplete, composition requires no remainder
+        let state = type("kaifaj")
+        // Should not contain a composed candidate with dangling "j"
+        XCTAssertFalse(state.candidates.isEmpty, "Should have prefix match candidates")
+    }
+
+    func testCompositionFallsBackToSingleChars() {
+        // "kaifajishu" — whole-string match exists (开发技术), so it takes priority
+        // If it didn't, DP composition would produce 开发+技术 over 开+发+技+术
+        let state = type("kaifajishu")
+        XCTAssertTrue(state.candidates.contains("开发技术"),
+            "Should produce 开发技术")
+    }
+
+    func testCompositionMultiWordPhrase() {
+        // "wanquanhushuo" — DP should compose wanquan(完全) + hushuo(胡说) = 完全胡说
+        let state = type("wanquanhushuo")
+        XCTAssertTrue(state.candidates.contains("完全胡说"),
+            "DP composition should produce 完全胡说")
     }
 
     func testAutoSplitPartialInput() {
