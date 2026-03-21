@@ -311,6 +311,28 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(state2.focusedSegmentIndex, 0)
     }
 
+    // MARK: - Prefix Matching (前缀匹配)
+
+    func testPrefixMatchWithPartialSyllable() {
+        // "xiangf" — "xiang" + "f" (incomplete), should prefix-match "xiangfa" → 想法
+        let state = type("xiangf")
+        XCTAssertFalse(state.candidates.isEmpty, "xiangf should produce candidates via prefix match")
+        XCTAssertTrue(state.candidates.contains("想法"), "想法 should appear for xiangf")
+    }
+
+    func testExactMatchTakesPriorityOverPrefix() {
+        // "shi" is a complete syllable with exact matches — should not need prefix fallback
+        let state = type("shi")
+        XCTAssertEqual(state.candidates.first, "是")
+    }
+
+    func testPrefixMatchCommitsCorrectly() {
+        // Type partial, then space to commit the prefix-matched candidate
+        type("xiangf")
+        let state = space()
+        XCTAssertEqual(state.committedText, "想法")
+    }
+
     // MARK: - Apostrophe Separation (撇号分隔)
 
     func testApostropheSeparationCandidates() {

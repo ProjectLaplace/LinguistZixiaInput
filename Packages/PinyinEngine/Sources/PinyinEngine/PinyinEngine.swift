@@ -434,7 +434,12 @@ public class PinyinEngine {
             result.append(composed)
         }
 
-        // 4. 如果都没有，尝试最后一个活跃段的候选
+        // 4. 如果都没有，尝试前缀匹配（末尾音节不完整时）
+        if result.isEmpty && !remainder.isEmpty {
+            result = store?.candidatesWithPrefix(cleanPinyin) ?? []
+        }
+
+        // 5. 如果仍然没有，尝试最后一个活跃段的候选
         if result.isEmpty {
             if let lastPinyin = composingItems.last?.sourcePinyin {
                 result = store?.candidates(for: lastPinyin) ?? []
