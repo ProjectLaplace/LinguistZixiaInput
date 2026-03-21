@@ -89,6 +89,7 @@ public class PinyinEngine {
     // 词库：物理分离，SQLite 支持
     private var zhStore: DictionaryStore?
     private var jaStore: DictionaryStore?
+    private var userDict: UserDictionary?
 
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
@@ -97,6 +98,7 @@ public class PinyinEngine {
 
     // 自动切分状态
     private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
+    private var originalPinyin: String = ""  // 用于学习的完整拼音（Tab 模式下 rawPinyin 会被修改）
     private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
 
     // 全角标点状态
@@ -117,12 +119,20 @@ public class PinyinEngine {
     /// 使用 Bundle 内置词库初始化
     public init() {
         loadDictionaries()
+        userDict = UserDictionary()
     }
 
     /// 使用指定的词库文件路径初始化
     public init(zhDictPath: String, jaDictPath: String) {
         zhStore = DictionaryStore(path: zhDictPath)
         jaStore = DictionaryStore(path: jaDictPath)
+    }
+
+    /// 使用指定的词库文件路径和用户词典路径初始化（用于测试）
+    public init(zhDictPath: String, jaDictPath: String, userDictPath: String) {
+        zhStore = DictionaryStore(path: zhDictPath)
+        jaStore = DictionaryStore(path: jaDictPath)
+        userDict = UserDictionary(path: userDictPath)
     }
 
     // MARK: - 词库加载
@@ -209,6 +219,7 @@ public class PinyinEngine {
         focusIndex = nil
 
         rawPinyin += lowerChar
+        originalPinyin = rawPinyin
         rebuildFromRawPinyin()
     }
 
@@ -256,14 +267,18 @@ public class PinyinEngine {
                 return nil
             } else {
                 // 正常模式：用候选替换整个拼音串，然后上屏全部
+                let pinyinForLearn = originalPinyin.replacingOccurrences(of: "'", with: "")
                 finalizeAllPinyin(with: first)
                 let result = composingItems.map { $0.content }.joined()
+                learnPhrase(pinyin: pinyinForLearn, word: result)
                 resetAll()
                 return result
             }
         } else if !composingItems.isEmpty {
-            // 无候选时，上屏原文
-            let result = rawContentForCommit()
+            // 无候选时（包括 Tab 模式全部确认后），上屏已组合的内容
+            let pinyinForLearn = originalPinyin.replacingOccurrences(of: "'", with: "")
+            let result = composingItems.map { $0.content }.joined()
+            learnPhrase(pinyin: pinyinForLearn, word: result)
             resetAll()
             return result
         }
@@ -336,12 +351,15 @@ public class PinyinEngine {
             return fullWidth
         } else {
             // 缓冲区非空：先用首选候选提交缓冲区，再追加标点
+            let pinyinForLearn = originalPinyin.replacingOccurrences(of: "'", with: "")
             var result = ""
             if let first = candidates.first {
                 finalizeAllPinyin(with: first)
                 result = composingItems.map { $0.content }.joined()
+                learnPhrase(pinyin: pinyinForLearn, word: result)
             } else {
-                result = rawContentForCommit()
+                result = composingItems.map { $0.content }.joined()
+                learnPhrase(pinyin: pinyinForLearn, word: result)
             }
             resetAll()
             return result + fullWidth
@@ -393,15 +411,14 @@ public class PinyinEngine {
         updateCandidatesWholeString()
     }
 
-    /// 更新候选词：优先整串匹配，补充组合候选
+    /// 更新候选词：系统整串 → 用户词典 → 自动组合 → 前缀 → 末段兜底
     private func updateCandidatesWholeString() {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
-        // 1. 整串匹配（去掉 apostrophe）
+        // 1. 整串精确匹配（去掉 apostrophe）
         let cleanPinyin = rawPinyin.replacingOccurrences(of: "'", with: "")
         var wholeMatches = store?.candidates(for: cleanPinyin) ?? []
 
-        // 2. 如果有多个音节，尝试组合候选
         let (syllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
         let hasApostrophe = rawPinyin.contains("'")
 
@@ -410,9 +427,18 @@ public class PinyinEngine {
             wholeMatches = wholeMatches.filter { $0.count == syllables.count }
         }
 
+        // 2. 用户词典匹配（精确 + 前缀），紧随系统整串之后
+        var userResults: [String] = []
+        if let userDict = userDict {
+            userResults = userDict.candidates(for: cleanPinyin)
+            if userResults.isEmpty && !remainder.isEmpty {
+                userResults = userDict.candidatesWithPrefix(cleanPinyin)
+            }
+        }
+
+        // 3. 自动组合候选
         var composed: String? = nil
         if syllables.count > 1 && remainder.isEmpty {
-            // 所有音节都完整，尝试逐段匹配后组合
             var parts: [String] = []
             var canCompose = true
             for syllable in syllables {
@@ -428,18 +454,26 @@ public class PinyinEngine {
             }
         }
 
-        // 3. 合并：整串匹配优先，组合候选补充（去重）
+        // 4. 合并：系统整串 → 用户词典（去重）
         var result = wholeMatches
-        if let composed = composed, !result.contains(composed) {
-            result.append(composed)
+        let wholeSet = Set(wholeMatches)
+        for word in userResults where !wholeSet.contains(word) {
+            result.append(word)
         }
 
-        // 4. 如果都没有，尝试前缀匹配（末尾音节不完整时）
+        // 5. 自动组合候选仅在没有任何真实匹配时作为兜底
+        if result.isEmpty {
+            if let composed = composed {
+                result.append(composed)
+            }
+        }
+
+        // 6. 如果都没有，尝试前缀匹配（末尾音节不完整时）
         if result.isEmpty && !remainder.isEmpty {
             result = store?.candidatesWithPrefix(cleanPinyin) ?? []
         }
 
-        // 5. 如果仍然没有，尝试最后一个活跃段的候选
+        // 7. 如果仍然没有，尝试最后一个活跃段的候选
         if result.isEmpty {
             if let lastPinyin = composingItems.last?.sourcePinyin {
                 result = store?.candidates(for: lastPinyin) ?? []
@@ -520,6 +554,7 @@ public class PinyinEngine {
         composingItems = []
         candidates = []
         rawPinyin = ""
+        originalPinyin = ""
         focusIndex = nil
         if currentMode == .transient { currentMode = .pinyin }
     }
@@ -528,6 +563,14 @@ public class PinyinEngine {
     private func pickCharacter(from candidate: String, pickLast: Bool) -> String? {
         guard !candidate.isEmpty else { return nil }
         return pickLast ? String(candidate.last!) : String(candidate.first!)
+    }
+
+    // MARK: - 用户词典学习
+
+    /// 将多字词保存到用户词典
+    private func learnPhrase(pinyin: String, word: String) {
+        guard word.count > 1 else { return }
+        userDict?.save(pinyin: pinyin, word: word)
     }
 
     // MARK: - 兼容性接口
