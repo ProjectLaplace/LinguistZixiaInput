@@ -6,7 +6,7 @@ APP_NAME = LaplaceIME.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(Q),-quiet)
 
-.PHONY: build install clean test dict format list-user-words reset-user-words
+.PHONY: build install clean test dict format eval list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -31,6 +31,13 @@ dict:
 format:
 	swift-format format -i -r Packages/PinyinEngine/Sources Packages/PinyinEngine/Tests Apps/LaplaceIME/LaplaceIME
 	prettier --write "**/*.md"
+
+eval:
+ifdef CASE
+	cd Packages/PinyinEngine && swift run pinyin-eval "$(CASE)"
+else
+	cd Packages/PinyinEngine && swift run pinyin-eval ../../fixtures/pinyin-strings.cases
+endif
 
 USER_DICT = $(HOME)/Library/Application Support/LaplaceIME/user_dict.db
 

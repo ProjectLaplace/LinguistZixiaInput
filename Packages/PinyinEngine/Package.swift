@@ -9,7 +9,10 @@ let package = Package(
     products: [
         .library(
             name: "PinyinEngine",
-            targets: ["PinyinEngine"])
+            targets: ["PinyinEngine"]),
+        .executable(
+            name: "pinyin-eval",
+            targets: ["PinyinEval"]),
     ],
     dependencies: [],
     targets: [
@@ -19,6 +22,9 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]),
+        .executableTarget(
+            name: "PinyinEval",
+            dependencies: ["PinyinEngine"]),
         .testTarget(
             name: "PinyinEngineTests",
             dependencies: ["PinyinEngine"]),

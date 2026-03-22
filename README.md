@@ -33,18 +33,43 @@ python3 tools/build_dict_db.py preset default
 
 ```bash
 # 3. 运行引擎测试
-cd Packages/PinyinEngine && swift test
+make test
 
-# 4. 构建 DemoApp
+# 4. 运行 DP 回归测试
+make eval
+
+# 5. 构建 DemoApp
 # 用 Xcode 打开 Apps/LaplaceIME-DemoApp/LaplaceIME-DemoApp.xcodeproj
 ```
+
+### DP 回归测试工具 (pinyin-eval)
+
+`pinyin-eval` 是一个 Swift CLI，用于验证拼音串的 DP 切分和组词结果是否符合预期。它复用 PinyinEngine 的真实 DP 算法，支持绿/橙/红三态判定：
+
+- **绿色**：DP 首选与预期输出一致
+- **橙色**：DP 首选与合理输出一致（预期输出需要更优的算法才能达到）
+- **红色**：都不匹配，展开评分明细用于分析
+
+案例文件 `pinyin-strings.cases` 格式：
+
+```
+# 注释
+jingque|biaoyi  精确表意  精确表姨
+benti|lun       本体论    本提论
+```
+
+- col1：拼音串，`|` 标注预期切分位置
+- col2：预期输出（绿色标准）
+- col3：合理输出（可选，橙色标准）
 
 ## 项目结构
 
 - `Packages/PinyinEngine` - 纯 Swift 输入法引擎，仅依赖 Foundation
+- `Packages/PinyinEngine/Sources/PinyinEval` - DP 回归测试 CLI 工具
 - `Apps/LaplaceIME-DemoApp` - SwiftUI macOS 仿真器
 - `tools/build_dict_db.py` - 词库构建工具
 - `fixtures/` - 测试用小型 JSON 词库
+- `pinyin-strings.cases` - DP 回归测试案例
 
 ## 文档
 
