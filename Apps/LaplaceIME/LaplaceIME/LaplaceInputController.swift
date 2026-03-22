@@ -27,6 +27,8 @@ class LaplaceInputController: IMKInputController {
         Profiler.measure("activateServer") {
             super.activateServer(sender)
         }
+        Self.englishMode = false
+        shiftPressedAlone = false
         Profiler.event("IMK activateServer")
     }
 
