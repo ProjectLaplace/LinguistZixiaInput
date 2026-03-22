@@ -6,7 +6,7 @@ APP_NAME = LaplaceIME.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(Q),-quiet)
 
-.PHONY: build install clean test dict
+.PHONY: build install clean test dict list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -27,3 +27,12 @@ test:
 
 dict:
 	python3 tools/build_dict_db.py fixtures
+
+USER_DICT = $(HOME)/Library/Application Support/LaplaceIME/user_dict.db
+
+list-user-words:
+	sqlite3 "$(USER_DICT)" "SELECT * FROM user_entries"
+
+reset-user-words:
+	rm -f "$(USER_DICT)"
+	@echo "User dictionary removed: $(USER_DICT)"
