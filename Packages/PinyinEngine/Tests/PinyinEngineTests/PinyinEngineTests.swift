@@ -280,6 +280,14 @@ final class PinyinEngineTests: XCTestCase {
             "Unified DP should produce 检查一下呢 by choosing xia+ne over xian+e")
     }
 
+    func testUnifiedDPPrefersHighQualityPhrases() {
+        // "shishenmene" — 失神+门额 has two multi-char words but low avg quality;
+        // 是+什么+呢 has one high-quality multi-char word (什么) and should win.
+        let state = type("shishenmene")
+        XCTAssertTrue(state.candidates.contains("是什么呢"),
+            "Unified DP should prefer 是什么呢 over 失神门额")
+    }
+
     func testAutoSplitPartialInput() {
         // "shij" — "shi" is complete, "j" is partial remainder
         let state = type("shij")

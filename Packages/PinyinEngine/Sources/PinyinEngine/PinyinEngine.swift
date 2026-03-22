@@ -601,13 +601,14 @@ public class PinyinEngine {
         struct DPState {
             var words: [String]
             var syllables: [String]
-            var multiCharScore: Double  // 多字词 log(freq) 之和（主排序键）
+            var multiCharScore: Double  // 多字词 log(freq) 之和
+            var multiCharCount: Int     // 多字词数量（用于计算平均分）
             var totalScore: Double      // 全部词 log(freq) 之和（次排序键）
             var sylCount: Int
         }
 
         var dp: [DPState?] = Array(repeating: nil, count: n + 1)
-        dp[n] = DPState(words: [], syllables: [], multiCharScore: 0, totalScore: 0, sylCount: 0)
+        dp[n] = DPState(words: [], syllables: [], multiCharScore: 0, multiCharCount: 0, totalScore: 0, sylCount: 0)
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
@@ -618,21 +619,29 @@ public class PinyinEngine {
                 let wordScore = log(Double(max(frequency, 1)))
                 let isMultiChar = word.count >= 2
                 let multiCharScore = (isMultiChar ? wordScore : 0) + rest.multiCharScore
+                let multiCharCount = (isMultiChar ? 1 : 0) + rest.multiCharCount
                 let totalScore = wordScore + rest.totalScore
                 let totalSyls = syllables.count + rest.sylCount
+
+                // 多字词平均分：偏好更少但更高质量的多字词匹配
+                let avgMulti = multiCharCount > 0
+                    ? multiCharScore / Double(multiCharCount) : -1
 
                 let candidate = DPState(
                     words: [word] + rest.words,
                     syllables: syllables + rest.syllables,
                     multiCharScore: multiCharScore,
+                    multiCharCount: multiCharCount,
                     totalScore: totalScore,
                     sylCount: totalSyls)
 
                 if let existing = dp[pos] {
-                    // 主键：多字词频分之和越高越好
+                    let existingAvgMulti = existing.multiCharCount > 0
+                        ? existing.multiCharScore / Double(existing.multiCharCount) : -1
+                    // 主键：多字词平均频分越高越好
                     // 次键：总频分之和越高越好
-                    if multiCharScore > existing.multiCharScore
-                        || (multiCharScore == existing.multiCharScore
+                    if avgMulti > existingAvgMulti
+                        || (avgMulti == existingAvgMulti
                             && totalScore > existing.totalScore)
                     {
                         dp[pos] = candidate
