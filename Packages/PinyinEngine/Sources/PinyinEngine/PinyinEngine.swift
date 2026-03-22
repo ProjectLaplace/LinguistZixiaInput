@@ -155,7 +155,17 @@ public class PinyinEngine {
     /// - Parameter event: 外部按键事件
     /// - Returns: 处理后的引擎状态快照
     public func process(_ event: EngineEvent) -> EngineState {
+        Profiler.measure("process(\(event))", statsLabel: "process") {
+            processInternal(event)
+        }
+    }
+
+    /// vprofile 触发标记：在 handleLetter 中设置，processInternal 中读取
+    private var profileRequested = false
+
+    private func processInternal(_ event: EngineEvent) -> EngineState {
         var committedText: String? = nil
+        profileRequested = false
 
         switch event {
         case .letter(let char):
@@ -187,6 +197,11 @@ public class PinyinEngine {
 
         case .punctuation(let char):
             committedText = handlePunctuation(char)
+        }
+
+        if profileRequested {
+            committedText = Profiler.summary()
+            resetAll()
         }
 
         return EngineState(
@@ -221,6 +236,13 @@ public class PinyinEngine {
         focusIndex = nil
 
         rawPinyin += lowerChar
+
+        // vprofile 触发统计摘要上屏
+        if rawPinyin == "vprofile" {
+            profileRequested = true
+            return
+        }
+
         rebuildFromRawPinyin()
     }
 
@@ -409,6 +431,7 @@ public class PinyinEngine {
 
     /// 更新候选词：精确匹配 → DP 组词 → 首段补充候选 → 前缀 → 末段兜底
     private func updateCandidatesWholeString(defaultSyllables: [String], remainder: String) {
+        let _ucStart = CFAbsoluteTimeGetCurrent()
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
         // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
@@ -490,6 +513,12 @@ public class PinyinEngine {
         }
 
         candidates = result
+
+        let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
+        Profiler.record("updateCandidates", elapsed: _ucElapsed, detail: "updateCandidates(\(rawPinyin))")
+        if _ucElapsed >= Profiler.thresholdMs {
+            Profiler.event("updateCandidates(\(rawPinyin)): \(String(format: "%.1f", _ucElapsed))ms")
+        }
     }
 
     /// 为 Tab 聚焦段更新候选词
@@ -632,6 +661,14 @@ public class PinyinEngine {
     private func unifiedCompose(_ input: String, store: DictionaryStore?)
         -> (text: String, syllables: [String], words: [String])?
     {
+        let _ucStart = CFAbsoluteTimeGetCurrent()
+        defer {
+            let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
+            Profiler.record("unifiedCompose", elapsed: _ucElapsed, detail: "unifiedCompose(\(input))")
+            if _ucElapsed >= Profiler.thresholdMs {
+                Profiler.event("unifiedCompose(\(input)): \(String(format: "%.1f", _ucElapsed))ms")
+            }
+        }
         guard let store = store, !input.isEmpty else { return nil }
 
         let chars = Array(input)

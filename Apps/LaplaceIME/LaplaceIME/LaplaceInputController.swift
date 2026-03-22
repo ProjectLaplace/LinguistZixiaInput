@@ -14,6 +14,22 @@ class LaplaceInputController: IMKInputController {
     private let engine = PinyinEngine()
     private var currentState = EngineState.idle
 
+    // MARK: - IMK 生命周期
+
+    override func activateServer(_ sender: Any!) {
+        Profiler.measure("activateServer") {
+            super.activateServer(sender)
+        }
+        Profiler.event("IMK activateServer")
+    }
+
+    override func deactivateServer(_ sender: Any!) {
+        Profiler.measure("deactivateServer") {
+            super.deactivateServer(sender)
+        }
+        Profiler.event("IMK deactivateServer")
+    }
+
     private static let punctuationChars: Set<Character> = [
         ",", ".", ";", ":", "?", "!", "\\",
         "(", ")", "{", "}", "<", ">", "\"",
@@ -33,6 +49,7 @@ class LaplaceInputController: IMKInputController {
     // MARK: - 按键处理
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
+        let handleStart = CFAbsoluteTimeGetCurrent()
         guard let event = event, event.type == .keyDown else { return false }
         guard let client = sender as? (any IMKTextInput) else { return false }
 
@@ -52,6 +69,11 @@ class LaplaceInputController: IMKInputController {
         let previousItems = currentState.items
         currentState = engine.process(ev)
         applyState(to: client)
+
+        let handleElapsed = (CFAbsoluteTimeGetCurrent() - handleStart) * 1000
+        if handleElapsed >= Profiler.thresholdMs {
+            Profiler.event("handle(key=\(event.keyCode)): \(String(format: "%.1f", handleElapsed))ms")
+        }
 
         // 如果处理前后缓冲区都为空，说明这个事件对引擎无意义，交给系统
         if previousItems.isEmpty && currentState.items.isEmpty && currentState.committedText == nil
