@@ -160,12 +160,25 @@ public class PinyinEngine {
         }
     }
 
-    /// vprofile 触发标记：在 handleLetter 中设置，processInternal 中读取
+    /// v 命令触发标记：在 handleLetter 中设置，processInternal 中读取
     private var profileRequested = false
+    private var buildTimeRequested = false
+
+    /// 可执行文件修改时间，用于 vct 确认版本
+    private static let buildTime: String = {
+        guard let execURL = Bundle.main.executableURL,
+            let attrs = try? FileManager.default.attributesOfItem(atPath: execURL.path),
+            let date = attrs[.modificationDate] as? Date
+        else { return "unknown" }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return df.string(from: date)
+    }()
 
     private func processInternal(_ event: EngineEvent) -> EngineState {
         var committedText: String? = nil
         profileRequested = false
+        buildTimeRequested = false
 
         switch event {
         case .letter(let char):
@@ -203,6 +216,10 @@ public class PinyinEngine {
             committedText = Profiler.summary()
             resetAll()
         }
+        if buildTimeRequested {
+            committedText = "[build] \(Self.buildTime)"
+            resetAll()
+        }
 
         return EngineState(
             items: composingItems,
@@ -237,9 +254,13 @@ public class PinyinEngine {
 
         rawPinyin += lowerChar
 
-        // vprofile 触发统计摘要上屏
+        // v 开头特殊命令
         if rawPinyin == "vprofile" {
             profileRequested = true
+            return
+        }
+        if rawPinyin == "vct" {
+            buildTimeRequested = true
             return
         }
 
