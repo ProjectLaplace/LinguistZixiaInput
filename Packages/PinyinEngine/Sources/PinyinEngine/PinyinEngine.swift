@@ -216,7 +216,7 @@ public class PinyinEngine {
             committedText = handleSpace()
 
         case .number(let index):
-            handleNumber(index)
+            committedText = handleNumber(index)
 
         case .bracket(let pickLast):
             handleBracket(pickLast: pickLast)
@@ -345,19 +345,24 @@ public class PinyinEngine {
     // MARK: - 数字选词
 
     /// 处理数字选词
-    private func handleNumber(_ index: Int) {
+    private func handleNumber(_ index: Int) -> String? {
         let actualIndex = index - 1
-        guard actualIndex >= 0 && actualIndex < candidates.count else { return }
+        guard actualIndex >= 0 && actualIndex < candidates.count else { return nil }
 
         if focusIndex != nil {
-            // Tab 聚焦模式：确认聚焦段
+            // Tab 聚焦模式：确认聚焦段，不提交
             confirmFocusedSegment(with: candidates[actualIndex])
+            return nil
         } else if firstSegmentCandidateStart > 0 && actualIndex >= firstSegmentCandidateStart {
             // 首段补充候选：只确认首段，剩余拼音继续组词
             confirmFirstSegment(with: candidates[actualIndex])
+            return nil
         } else {
-            // 正常模式：用候选替换整个拼音串，不提交（等待后续输入或空格提交）
+            // 正常模式：用候选替换整个拼音串并提交
             finalizeAllPinyin(with: candidates[actualIndex])
+            let result = composingItems.map { $0.content }.joined()
+            resetAll()
+            return result
         }
     }
 

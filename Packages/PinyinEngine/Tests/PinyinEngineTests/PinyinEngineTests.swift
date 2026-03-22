@@ -53,13 +53,12 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertTrue(state.candidates.isEmpty)
     }
 
-    func testNumberSelectsWordWithoutCommitting() {
+    func testNumberSelectsAndCommits() {
         type("shi")
         let state = number(2)
-        // Number selection finalizes pinyin to text but stays in buffer
-        XCTAssertEqual(state.items, [.text("时")])
-        XCTAssertNil(state.committedText)
-        XCTAssertTrue(state.candidates.isEmpty)
+        // Number selection commits directly in non-Tab mode
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertEqual(state.committedText, "时")
     }
 
     func testEnterCommitsRawPinyin() {
@@ -122,16 +121,17 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertTrue(state.items.isEmpty)
     }
 
-    func testComposingWithNumberThenSpace() {
-        // shi + number(2) selects「时」, then continue typing
+    func testNumberCommitsThenContinueTyping() {
+        // shi + number(2) commits「时」directly
         type("shi")
-        number(2)  // buffer: [.text("时")]
+        let committed = number(2)
+        XCTAssertEqual(committed.committedText, "时")
+        XCTAssertTrue(committed.items.isEmpty)
 
-        type("shi")  // buffer: [.text("时"), .pinyin("shi")]
-
+        // Continue typing starts a fresh buffer
+        type("shi")
         let state = space()
-        // space finalizes first candidate「是」, commits「时是」
-        XCTAssertEqual(state.committedText, "时是")
+        XCTAssertEqual(state.committedText, "是")
     }
 
     // MARK: - Transient Japanese Mode (临时日文模式)
