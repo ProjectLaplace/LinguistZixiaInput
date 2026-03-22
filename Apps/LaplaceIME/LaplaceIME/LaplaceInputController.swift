@@ -72,7 +72,8 @@ class LaplaceInputController: IMKInputController {
 
         let handleElapsed = (CFAbsoluteTimeGetCurrent() - handleStart) * 1000
         if handleElapsed >= Profiler.thresholdMs {
-            Profiler.event("handle(key=\(event.keyCode)): \(String(format: "%.1f", handleElapsed))ms")
+            Profiler.event(
+                "handle(key=\(event.keyCode)): \(String(format: "%.1f", handleElapsed))ms")
         }
 
         // 如果处理前后缓冲区都为空，说明这个事件对引擎无意义，交给系统

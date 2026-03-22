@@ -237,7 +237,8 @@ public class PinyinEngine {
         let lowerChar = char.lowercased()
 
         // 分段模式切换：在 Buffer 为空或处于段落边界（刚定完字）时，'i' 作为开关
-        let isAtSegmentBoundary = composingItems.isEmpty
+        let isAtSegmentBoundary =
+            composingItems.isEmpty
             || (!composingItems.last!.isEditable)
         if isAtSegmentBoundary && lowerChar == "i" {
             currentMode = (currentMode == .pinyin) ? .transient : .pinyin
@@ -536,9 +537,11 @@ public class PinyinEngine {
         candidates = result
 
         let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
-        Profiler.record("updateCandidates", elapsed: _ucElapsed, detail: "updateCandidates(\(rawPinyin))")
+        Profiler.record(
+            "updateCandidates", elapsed: _ucElapsed, detail: "updateCandidates(\(rawPinyin))")
         if _ucElapsed >= Profiler.thresholdMs {
-            Profiler.event("updateCandidates(\(rawPinyin)): \(String(format: "%.1f", _ucElapsed))ms")
+            Profiler.event(
+                "updateCandidates(\(rawPinyin)): \(String(format: "%.1f", _ucElapsed))ms")
         }
     }
 
@@ -685,7 +688,8 @@ public class PinyinEngine {
         let _ucStart = CFAbsoluteTimeGetCurrent()
         defer {
             let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
-            Profiler.record("unifiedCompose", elapsed: _ucElapsed, detail: "unifiedCompose(\(input))")
+            Profiler.record(
+                "unifiedCompose", elapsed: _ucElapsed, detail: "unifiedCompose(\(input))")
             if _ucElapsed >= Profiler.thresholdMs {
                 Profiler.event("unifiedCompose(\(input)): \(String(format: "%.1f", _ucElapsed))ms")
             }
@@ -699,10 +703,10 @@ public class PinyinEngine {
             var words: [String]
             var syllables: [String]
             var multiCharScore: Double  // 多字词 log(freq) 之和
-            var multiCharCount: Int     // 多字词数量（用于计算平均分）
+            var multiCharCount: Int  // 多字词数量（用于计算平均分）
             var multiCharSylCount: Int  // 被多字词覆盖的音节数（用于计算覆盖率）
-            var totalScore: Double      // 全部词 log(freq) 之和
-            var wordCount: Int          // 总词数（越少越好）
+            var totalScore: Double  // 全部词 log(freq) 之和
+            var wordCount: Int  // 总词数（越少越好）
             var sylCount: Int
         }
 
@@ -716,9 +720,11 @@ public class PinyinEngine {
         // 同时让同质量下全覆盖（精确+匹配）胜过有单字填充的路径（景区+饿+匹配）。
         func isBetter(_ a: DPState, than b: DPState) -> Bool {
             func compositeScore(_ s: DPState) -> Double {
-                let avg = s.multiCharCount > 0
+                let avg =
+                    s.multiCharCount > 0
                     ? s.multiCharScore / Double(s.multiCharCount) : -1
-                let cov = s.sylCount > 0
+                let cov =
+                    s.sylCount > 0
                     ? Double(s.multiCharSylCount) / Double(s.sylCount) : 0
                 return avg + 4.0 * cov
             }
@@ -798,8 +804,9 @@ public class PinyinEngine {
             for sylLen in 1...maxLen {
                 let syllable = String(chars[curPos..<(curPos + sylLen)])
                 let normalized = Self.normalizePinyin(syllable)
-                guard PinyinSplitter.validSyllables.contains(normalized)
-                    || PinyinSplitter.validSyllables.contains(syllable)
+                guard
+                    PinyinSplitter.validSyllables.contains(normalized)
+                        || PinyinSplitter.validSyllables.contains(syllable)
                 else { continue }
 
                 let newPinyin = accPinyin + normalized

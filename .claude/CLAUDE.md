@@ -1,13 +1,16 @@
 # LaplaceIME Project Context
 
 ## Build & Test
+
 - Dictionary build (required before first build): `python3 tools/build_dict_db.py fixtures`
 - Full dictionary from rime-ice: `python3 tools/build_dict_db.py preset default`
 - Engine: `cd Packages/PinyinEngine && swift build`
 - Tests: `cd Packages/PinyinEngine && swift test`
+- Format: `make format` (swift-format for Swift, prettier for Markdown)
 - DemoApp: Open `Apps/LaplaceIME-DemoApp/LaplaceIME-DemoApp.xcodeproj` in Xcode
 
 ## Architecture
+
 - `Packages/PinyinEngine` — Pure Swift engine (Foundation + SQLite3, no UI)
   - `PinyinEngine` — Core state machine, processes `EngineEvent` → `EngineState`
   - `DictionaryStore` — SQLite-backed dictionary lookups
@@ -17,11 +20,13 @@
 - `fixtures/` — Small JSON dictionaries for test fixture generation
 
 ## Key Types
+
 - `ComposingItem`: `.text` (confirmed) | `.provisional` (auto-matched preview) | `.pinyin` (active input)
 - `EngineEvent`: `.letter` | `.number` | `.space` | `.enter` | `.backspace` | `.esc` | `.bracket` | `.tab`
 - `EngineState`: items, candidates, committedText, mode, focusedSegmentIndex
 
 ## Conventions
+
 - Chinese text uses「」not ""
 - Deterministic input is the core design principle
 - No network requests, no persistent privacy data

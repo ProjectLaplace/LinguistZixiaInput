@@ -238,9 +238,11 @@ final class PinyinEngineTests: XCTestCase {
         // "jianchayixia" — DP should match jiancha(检查) + yixia(一下)
         // not jianchayi(检查仪) + xia(下) or per-syllable jian+cha+yi+xia
         let state = type("jianchayixia")
-        XCTAssertTrue(state.candidates.contains("检查一下"),
+        XCTAssertTrue(
+            state.candidates.contains("检查一下"),
             "DP composition should produce 检查一下")
-        XCTAssertFalse(state.candidates.contains("见差一下"),
+        XCTAssertFalse(
+            state.candidates.contains("见差一下"),
             "Per-syllable 见差一下 should not appear")
     }
 
@@ -261,14 +263,16 @@ final class PinyinEngineTests: XCTestCase {
         // "kaifajishu" — whole-string match exists (开发技术), so it takes priority
         // If it didn't, DP composition would produce 开发+技术 over 开+发+技+术
         let state = type("kaifajishu")
-        XCTAssertTrue(state.candidates.contains("开发技术"),
+        XCTAssertTrue(
+            state.candidates.contains("开发技术"),
             "Should produce 开发技术")
     }
 
     func testCompositionMultiWordPhrase() {
         // "wanquanhushuo" — DP should compose wanquan(完全) + hushuo(胡说) = 完全胡说
         let state = type("wanquanhushuo")
-        XCTAssertTrue(state.candidates.contains("完全胡说"),
+        XCTAssertTrue(
+            state.candidates.contains("完全胡说"),
             "DP composition should produce 完全胡说")
     }
 
@@ -276,7 +280,8 @@ final class PinyinEngineTests: XCTestCase {
         // "jianchayixiane" — two-stage approach splits "xian"+"e" → 检查仪限额
         // unified DP should prefer "xia"+"ne" because it enables 一下+呢 → 检查一下呢
         let state = type("jianchayixiane")
-        XCTAssertTrue(state.candidates.contains("检查一下呢"),
+        XCTAssertTrue(
+            state.candidates.contains("检查一下呢"),
             "Unified DP should produce 检查一下呢 by choosing xia+ne over xian+e")
     }
 
@@ -284,7 +289,8 @@ final class PinyinEngineTests: XCTestCase {
         // "shishenmene" — 失神+门额 has two multi-char words but low avg quality;
         // 是+什么+呢 has one high-quality multi-char word (什么) and should win.
         let state = type("shishenmene")
-        XCTAssertTrue(state.candidates.contains("是什么呢"),
+        XCTAssertTrue(
+            state.candidates.contains("是什么呢"),
             "Unified DP should prefer 是什么呢 over 失神门额")
     }
 
@@ -292,7 +298,8 @@ final class PinyinEngineTests: XCTestCase {
         // "jingquepipei" — 景区+饿+匹配 has a single-char filler (饿);
         // 精确+匹配 has full multi-char coverage and should win.
         let state = type("jingquepipei")
-        XCTAssertEqual(state.candidates.first, "精确匹配",
+        XCTAssertEqual(
+            state.candidates.first, "精确匹配",
             "DP should prefer 精确匹配 (full coverage) over 景区饿匹配 (single-char filler)")
     }
 
@@ -303,10 +310,12 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertFalse(state.candidates.isEmpty)
         let first = state.candidates.first ?? ""
         // Should NOT contain the ji+a+o split pattern (级啊奥/级啊哦)
-        XCTAssertFalse(first.contains("级啊"),
+        XCTAssertFalse(
+            first.contains("级啊"),
             "DP should not split jiao into ji+a+o, got: \(first)")
         // Should contain 惊喜 (jingxi correctly matched as a multi-char word)
-        XCTAssertTrue(first.contains("惊喜"),
+        XCTAssertTrue(
+            first.contains("惊喜"),
             "DP should match 惊喜 as a multi-char word, got: \(first)")
     }
 
@@ -316,7 +325,8 @@ final class PinyinEngineTests: XCTestCase {
         // So the result should use 叫 (jiao alone) not 脚 (via 的脚 compound)
         let state = type("shenmetamadejiaojingxi")
         let first = state.candidates.first ?? ""
-        XCTAssertTrue(first.contains("叫"),
+        XCTAssertTrue(
+            first.contains("叫"),
             "Low-freq 的脚 should not boost coverage, expect 叫 not 脚, got: \(first)")
     }
 
@@ -404,7 +414,8 @@ final class PinyinEngineTests: XCTestCase {
     func testPrefixMatchWithPartialSyllable() {
         // "xiangf" — "xiang" + "f" (incomplete), should prefix-match "xiangfa" → 想法
         let state = type("xiangf")
-        XCTAssertFalse(state.candidates.isEmpty, "xiangf should produce candidates via prefix match")
+        XCTAssertFalse(
+            state.candidates.isEmpty, "xiangf should produce candidates via prefix match")
         XCTAssertTrue(state.candidates.contains("想法"), "想法 should appear for xiangf")
     }
 
@@ -473,12 +484,14 @@ final class PinyinEngineTests: XCTestCase {
         // Should NOT commit — buffer should have confirmed text + remaining pinyin
         XCTAssertNil(afterSelect.committedText)
         // Buffer should contain confirmed "是" followed by composing pinyin for "jian"
-        XCTAssertTrue(afterSelect.items.contains(.text("是")),
+        XCTAssertTrue(
+            afterSelect.items.contains(.text("是")),
             "Buffer should contain confirmed 是")
         let hasPinyin = afterSelect.items.contains(where: { $0.isPinyin })
         XCTAssertTrue(hasPinyin, "Buffer should still have pinyin items for 'jian'")
         // Candidates should now be for "jian"
-        XCTAssertTrue(afterSelect.candidates.contains("间") || afterSelect.candidates.contains("见"),
+        XCTAssertTrue(
+            afterSelect.candidates.contains("间") || afterSelect.candidates.contains("见"),
             "Candidates should be for remaining 'jian'")
     }
 
@@ -494,7 +507,8 @@ final class PinyinEngineTests: XCTestCase {
         let committed = space()  // commit the whole buffer
         XCTAssertNotNil(committed.committedText)
         // Should start with 是
-        XCTAssertTrue(committed.committedText?.hasPrefix("是") == true,
+        XCTAssertTrue(
+            committed.committedText?.hasPrefix("是") == true,
             "Committed text should start with 是, got: \(committed.committedText ?? "nil")")
     }
 
@@ -504,7 +518,8 @@ final class PinyinEngineTests: XCTestCase {
         // plus first-segment alternatives, NOT a DP-composed string
         let state = type("shijian")
         // The first candidate should be an exact match, not a DP composition
-        XCTAssertEqual(state.candidates.first, "时间",
+        XCTAssertEqual(
+            state.candidates.first, "时间",
             "First candidate should be exact match 时间, not DP composition")
     }
 
@@ -513,14 +528,17 @@ final class PinyinEngineTests: XCTestCase {
         // and also show first-segment candidates for the DP first word's pinyin
         let state = type("shishenmene")
         XCTAssertFalse(state.candidates.isEmpty)
-        XCTAssertEqual(state.candidates.first, "是什么呢",
+        XCTAssertEqual(
+            state.candidates.first, "是什么呢",
             "First candidate should be DP composed 是什么呢")
         // Should also have first-segment candidates for "shi" (是/时/十...)
         // But "是" might already be the first char of the composed result,
         // so check for other alternatives
-        let hasAlternatives = state.candidates.contains("时") || state.candidates.contains("十")
+        let hasAlternatives =
+            state.candidates.contains("时") || state.candidates.contains("十")
             || state.candidates.contains("事")
-        XCTAssertTrue(hasAlternatives,
+        XCTAssertTrue(
+            hasAlternatives,
             "Should have first-segment alternatives like 时/十/事")
     }
 

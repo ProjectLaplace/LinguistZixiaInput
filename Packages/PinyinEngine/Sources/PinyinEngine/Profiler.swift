@@ -5,7 +5,8 @@ import os
 /// 日志可在 Console.app 中通过 Process "LaplaceIME" 过滤查看。
 /// 同时在内存中聚合统计（count/avg/p95/max），通过 vprofile 上屏查看。
 public enum Profiler {
-    private static let logger = Logger(subsystem: "org.1b2c.inputmethod.LaplaceIME", category: "perf")
+    private static let logger = Logger(
+        subsystem: "org.1b2c.inputmethod.LaplaceIME", category: "perf")
 
     /// 默认阈值：超过此毫秒数才输出日志
     public static var thresholdMs: Double = 5.0
@@ -66,13 +67,16 @@ public enum Profiler {
     ///   - label: 日志中显示的详细标签（如 "process(letter("a"))"），也用于慢调用记录
     ///   - statsLabel: 统计聚合用的标签（如 "process"），默认同 label
     @inline(__always)
-    public static func measure<T>(_ label: String, statsLabel: String? = nil, _ body: () -> T) -> T {
+    public static func measure<T>(_ label: String, statsLabel: String? = nil, _ body: () -> T) -> T
+    {
         let start = CFAbsoluteTimeGetCurrent()
         let result = body()
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
         record(statsLabel ?? label, elapsed: elapsed, detail: label)
         if elapsed >= thresholdMs {
-            logger.warning("\(label, privacy: .public): \(String(format: "%.1f", elapsed), privacy: .public)ms")
+            logger.warning(
+                "\(label, privacy: .public): \(String(format: "%.1f", elapsed), privacy: .public)ms"
+            )
         }
         return result
     }

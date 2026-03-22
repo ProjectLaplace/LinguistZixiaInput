@@ -23,13 +23,15 @@ public class DictionaryStore {
         }
 
         // Range query for prefix matching: uses index efficiently
-        let prefixSql = "SELECT word FROM entries WHERE pinyin >= ? AND pinyin < ? ORDER BY frequency DESC LIMIT ?"
+        let prefixSql =
+            "SELECT word FROM entries WHERE pinyin >= ? AND pinyin < ? ORDER BY frequency DESC LIMIT ?"
         if sqlite3_prepare_v2(db, prefixSql, -1, &prefixStmt, nil) != SQLITE_OK {
             prefixStmt = nil
         }
 
         // Top candidate with frequency
-        let topSql = "SELECT word, frequency FROM entries WHERE pinyin = ? ORDER BY frequency DESC LIMIT 1"
+        let topSql =
+            "SELECT word, frequency FROM entries WHERE pinyin = ? ORDER BY frequency DESC LIMIT 1"
         if sqlite3_prepare_v2(db, topSql, -1, &topStmt, nil) != SQLITE_OK {
             topStmt = nil
         }
@@ -70,7 +72,7 @@ public class DictionaryStore {
         sqlite3_bind_text(stmt, 1, pinyin, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         guard sqlite3_step(stmt) == SQLITE_ROW,
-              let cStr = sqlite3_column_text(stmt, 0)
+            let cStr = sqlite3_column_text(stmt, 0)
         else { return nil }
 
         let word = String(cString: cStr)

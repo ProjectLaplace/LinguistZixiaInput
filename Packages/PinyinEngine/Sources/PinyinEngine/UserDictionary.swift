@@ -54,26 +54,39 @@ public class UserDictionary {
         }
 
         // Create index if not exists
-        sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_user_pinyin ON user_entries(pinyin)", nil, nil, nil)
+        sqlite3_exec(
+            db, "CREATE INDEX IF NOT EXISTS idx_user_pinyin ON user_entries(pinyin)", nil, nil, nil)
 
         // Prepare statements
         let insertSQL = "INSERT OR IGNORE INTO user_entries (pinyin, word) VALUES (?, ?)"
-        guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else { return false }
+        guard sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK else {
+            return false
+        }
 
         let querySQL = "SELECT word FROM user_entries WHERE pinyin = ?"
-        guard sqlite3_prepare_v2(db, querySQL, -1, &queryStmt, nil) == SQLITE_OK else { return false }
+        guard sqlite3_prepare_v2(db, querySQL, -1, &queryStmt, nil) == SQLITE_OK else {
+            return false
+        }
 
         let prefixSQL = "SELECT word FROM user_entries WHERE pinyin >= ? AND pinyin < ? LIMIT ?"
-        guard sqlite3_prepare_v2(db, prefixSQL, -1, &prefixStmt, nil) == SQLITE_OK else { return false }
+        guard sqlite3_prepare_v2(db, prefixSQL, -1, &prefixStmt, nil) == SQLITE_OK else {
+            return false
+        }
 
         let existsSQL = "SELECT 1 FROM user_entries WHERE pinyin = ? AND word = ? LIMIT 1"
-        guard sqlite3_prepare_v2(db, existsSQL, -1, &existsStmt, nil) == SQLITE_OK else { return false }
+        guard sqlite3_prepare_v2(db, existsSQL, -1, &existsStmt, nil) == SQLITE_OK else {
+            return false
+        }
 
         return true
     }
 
     private static func defaultDirectory() -> String? {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        guard
+            let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first
+        else {
             return nil
         }
         return appSupport.appendingPathComponent("LaplaceIME").path
