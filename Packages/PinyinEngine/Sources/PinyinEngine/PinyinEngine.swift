@@ -90,6 +90,7 @@ public class PinyinEngine {
     private var zhStore: DictionaryStore?
     private var jaStore: DictionaryStore?
     private var userDict: UserDictionary?
+    private var pinnedChars: PinnedCharStore?
 
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
@@ -122,6 +123,7 @@ public class PinyinEngine {
     public init() {
         loadDictionaries()
         userDict = UserDictionary()
+        pinnedChars = PinnedCharStore.loadDefault()
     }
 
     /// 使用指定的词库文件路径初始化
@@ -130,11 +132,15 @@ public class PinyinEngine {
         jaStore = DictionaryStore(path: jaDictPath)
     }
 
-    /// 使用指定的词库文件路径和用户词典路径初始化（用于测试）
-    public init(zhDictPath: String, jaDictPath: String, userDictPath: String) {
+    /// 使用指定的词库文件路径、用户词典路径和固顶字初始化（用于测试）
+    public init(
+        zhDictPath: String, jaDictPath: String, userDictPath: String,
+        pinnedChars: PinnedCharStore? = nil
+    ) {
         zhStore = DictionaryStore(path: zhDictPath)
         jaStore = DictionaryStore(path: jaDictPath)
         userDict = UserDictionary(path: userDictPath)
+        self.pinnedChars = pinnedChars
     }
 
     // MARK: - 词库加载
@@ -534,6 +540,11 @@ public class PinyinEngine {
             }
         }
 
+        // 固顶字：单音节（含不完整前缀）时，将固顶字插入候选列表最前面
+        if currentMode == .pinyin && defaultSyllables.count <= 1 {
+            result = applyPinnedChars(for: cleanPinyin, to: result)
+        }
+
         candidates = result
 
         let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
@@ -560,7 +571,21 @@ public class PinyinEngine {
         }
 
         let store = (currentMode == .pinyin) ? zhStore : jaStore
-        candidates = store?.candidates(for: Self.normalizePinyin(pinyin)) ?? []
+        let normalizedPinyin = Self.normalizePinyin(pinyin)
+        var result = store?.candidates(for: normalizedPinyin) ?? []
+        if currentMode == .pinyin {
+            result = applyPinnedChars(for: normalizedPinyin, to: result)
+        }
+        candidates = result
+    }
+
+    /// 将固顶字插入候选列表最前面，去除重复
+    private func applyPinnedChars(for pinyin: String, to candidates: [String]) -> [String] {
+        guard let pinned = pinnedChars?.pinnedChars(for: pinyin), !pinned.isEmpty else {
+            return candidates
+        }
+        let pinnedSet = Set(pinned)
+        return pinned + candidates.filter { !pinnedSet.contains($0) }
     }
 
     // MARK: - 确认与提交辅助
