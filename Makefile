@@ -6,7 +6,7 @@ APP_NAME = LaplaceIME.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(Q),-quiet)
 
-.PHONY: build install clean test dict format eval list-user-words reset-user-words
+.PHONY: build install clean test dict format eval query list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -38,6 +38,12 @@ ifdef CASE
 else
 	cd Packages/PinyinEngine && swift run pinyin-eval ../../fixtures/pinyin-strings.cases
 endif
+
+query:
+ifndef P
+	$(error Usage: make query P=<pinyin>)
+endif
+	cd Packages/PinyinEngine && swift run pinyin-eval -q "$(P)"
 
 USER_DICT = $(HOME)/Library/Application Support/LaplaceIME/user_dict.db
 

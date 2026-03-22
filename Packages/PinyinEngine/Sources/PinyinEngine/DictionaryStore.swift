@@ -80,6 +80,30 @@ public class DictionaryStore {
         return (word, frequency)
     }
 
+    /// Look up all candidates with frequencies for an exact pinyin match.
+    /// - Parameter pinyin: The pinyin key
+    /// - Returns: Array of (word, frequency) tuples, ordered by frequency descending
+    public func candidatesWithFrequency(for pinyin: String) -> [(word: String, frequency: Int)] {
+        guard let db = db else { return [] }
+
+        var stmt: OpaquePointer?
+        let sql = "SELECT word, frequency FROM entries WHERE pinyin = ? ORDER BY frequency DESC"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_text(stmt, 1, pinyin, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+
+        var results: [(word: String, frequency: Int)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let cStr = sqlite3_column_text(stmt, 0) {
+                let word = String(cString: cStr)
+                let frequency = Int(sqlite3_column_int64(stmt, 1))
+                results.append((word, frequency))
+            }
+        }
+        return results
+    }
+
     /// Look up candidate words whose pinyin starts with the given prefix.
     /// Uses range query (>= prefix, < prefix+1) to leverage the B-tree index.
     /// - Parameters:

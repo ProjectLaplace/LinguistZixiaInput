@@ -161,17 +161,22 @@ let args = CommandLine.arguments
 if args.count < 2 {
     fputs("Usage: pinyin-eval <cases-file> [--dict <path>]\n", stderr)
     fputs("       pinyin-eval \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
+    fputs("       pinyin-eval -q <pinyin>\n", stderr)
     exit(1)
 }
 
-// 解析 --dict 参数
+// 解析参数
 var dictPath: String?
 var inputArg: String?
+var queryMode = false
 var i = 1
 while i < args.count {
     if args[i] == "--dict" && i + 1 < args.count {
         dictPath = args[i + 1]
         i += 2
+    } else if args[i] == "-q" || args[i] == "--query" {
+        queryMode = true
+        i += 1
     } else if inputArg == nil {
         inputArg = args[i]
         i += 1
@@ -190,6 +195,41 @@ guard let store = DictionaryStore(path: resolvedDictPath) else {
     fputs(
         "\(Color.red)Error: cannot open dictionary at \(resolvedDictPath)\(Color.reset)\n", stderr)
     exit(1)
+}
+
+// -q 模式：查询词库
+if queryMode {
+    let pinyin = input.lowercased()
+    let exact = store.candidatesWithFrequency(for: pinyin)
+    let prefix = store.candidatesWithPrefix(pinyin, limit: 20)
+
+    if !exact.isEmpty {
+        print("\(Color.bold)exact:\(Color.reset)  ", terminator: "")
+        print(
+            exact.map { "\($0.word)(\(Color.dim)f=\($0.frequency)\(Color.reset))" }.joined(
+                separator: " "))
+    } else {
+        print("\(Color.dim)exact:  (no match)\(Color.reset)")
+    }
+
+    if !prefix.isEmpty {
+        // 前缀结果去掉精确匹配中已出现的
+        let exactWords = Set(exact.map { $0.word })
+        let prefixOnly = prefix.filter { !exactWords.contains($0) }
+        if !prefixOnly.isEmpty {
+            print("\(Color.bold)prefix:\(Color.reset) ", terminator: "")
+            print(prefixOnly.joined(separator: " "))
+        }
+    }
+
+    // DP 结果
+    if let dpResult = DPDiagnostics.evaluateDP(pinyin, store: store) {
+        print(
+            "\(Color.bold)dp:\(Color.reset)     \(dpResult.text)  \(Color.dim)\(formatPath(dpResult))\(Color.reset)"
+        )
+    }
+
+    exit(0)
 }
 
 // 判断输入是文件还是单条 case
