@@ -14,6 +14,13 @@ class LaplaceInputController: IMKInputController {
     private let engine = PinyinEngine()
     private var currentState = EngineState.idle
 
+    /// 英文直通模式（Shift toggle）
+    private static var englishMode = false
+    /// 跟踪 Shift 是否为单独按下（没有夹带其他键）
+    private var shiftPressedAlone = false
+    /// 缓存最近的光标位置（用于 flagsChanged 时显示指示器）
+    private var lastCursorRect = NSRect.zero
+
     // MARK: - IMK 生命周期
 
     override func activateServer(_ sender: Any!) {
@@ -46,12 +53,45 @@ class LaplaceInputController: IMKInputController {
 
     private static let indicator = LaplaceIndicator()
 
+    override func recognizedEvents(_ sender: Any!) -> Int {
+        let keyDown = NSEvent.EventTypeMask.keyDown
+        let flagsChanged = NSEvent.EventTypeMask.flagsChanged
+        return Int(keyDown.rawValue | flagsChanged.rawValue)
+    }
+
     // MARK: - 按键处理
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         let handleStart = CFAbsoluteTimeGetCurrent()
-        guard let event = event, event.type == .keyDown else { return false }
+        guard let event = event else { return false }
+
+        // Shift toggle 检测：flagsChanged 事件
+        if event.type == .flagsChanged {
+            let isShiftDown = event.modifierFlags.contains(.shift)
+            if isShiftDown {
+                shiftPressedAlone = true
+            } else if shiftPressedAlone {
+                // Shift 松开且中间没有其他键：切换中英文
+                shiftPressedAlone = false
+                if currentState.items.isEmpty {
+                    Self.englishMode.toggle()
+                    Self.indicator.showMode(english: Self.englishMode, near: lastCursorRect)
+                    Profiler.event("Shift toggle → \(Self.englishMode ? "EN" : "中")")
+                }
+            }
+            return false
+        }
+
+        guard event.type == .keyDown else { return false }
         guard let client = sender as? (any IMKTextInput) else { return false }
+
+        // 任何 keyDown 都说明 Shift 不是单独按下
+        shiftPressedAlone = false
+
+        // 英文直通模式：所有按键交给系统
+        if Self.englishMode {
+            return false
+        }
 
         // 带修饰键的事件（除 Shift 外）不处理，交给系统
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -222,11 +262,16 @@ class LaplaceInputController: IMKInputController {
     // MARK: - 浮动指示器
 
     private func updateIndicator(client: any IMKTextInput) {
+        // 每次都更新缓存的光标位置
+        var cursorRect = NSRect.zero
+        client.attributes(forCharacterIndex: 0, lineHeightRectangle: &cursorRect)
+        if cursorRect != .zero {
+            lastCursorRect = cursorRect
+        }
+
         if currentState.items.isEmpty {
             Self.indicator.hide()
         } else {
-            var cursorRect = NSRect.zero
-            client.attributes(forCharacterIndex: 0, lineHeightRectangle: &cursorRect)
             Self.indicator.show(near: cursorRect)
         }
     }
@@ -273,5 +318,25 @@ class LaplaceIndicator {
 
     func hide() {
         panel.orderOut(nil)
+    }
+
+    /// 短暂显示中英文切换状态
+    func showMode(english: Bool, near cursorRect: NSRect) {
+        label.stringValue = english ? "EN" : "中"
+        label.layer?.backgroundColor =
+            english
+            ? NSColor.systemOrange.cgColor : NSColor.systemPurple.cgColor
+
+        let x = cursorRect.origin.x
+        let y = cursorRect.origin.y - 24
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        panel.orderFront(nil)
+
+        // 1 秒后隐藏，恢复标签
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.panel.orderOut(nil)
+            self?.label.stringValue = "LP"
+            self?.label.layer?.backgroundColor = NSColor.systemPurple.cgColor
+        }
     }
 }
