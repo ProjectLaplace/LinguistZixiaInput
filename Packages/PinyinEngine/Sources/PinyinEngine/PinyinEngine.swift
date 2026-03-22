@@ -544,9 +544,18 @@ public class PinyinEngine {
             }
         }
 
-        // 6. 如果都没有，尝试前缀匹配（末尾音节不完整时）
-        if result.isEmpty && !remainder.isEmpty {
-            result = store?.candidatesWithPrefix(cleanPinyin) ?? []
+        // 6. 前缀匹配兜底：精确匹配和 DP 都无结果时，用前缀匹配补充候选。
+        //    两种触发场景：
+        //    a) 音节不完整（remainder 不为空），如 b → ba, bai, ban...
+        //    b) 单音节但词库无精确条目（如 n 是合法音节但词库无 pinyin='n'）
+        //    单字限制：无完整多音节时只返回单字，防止声母前缀（如 b）匹配出「版权」等词
+        if result.isEmpty && (!remainder.isEmpty || defaultSyllables.count == 1) {
+            let prefixResults = store?.candidatesWithPrefix(cleanPinyin) ?? []
+            let hasMultipleSyllables = defaultSyllables.count > 1
+            result =
+                hasMultipleSyllables
+                ? prefixResults
+                : prefixResults.filter { $0.count == 1 }
         }
 
         // 7. 如果仍然没有，尝试最后一个活跃段的候选
