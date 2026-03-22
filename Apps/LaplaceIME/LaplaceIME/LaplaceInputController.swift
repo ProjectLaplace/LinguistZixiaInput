@@ -18,6 +18,12 @@ class LaplaceInputController: IMKInputController {
     private static var englishMode = false
     /// 跟踪 Shift 是否为单独按下（没有夹带其他键）
     private var shiftPressedAlone = false
+    /// Shift 按下的时间戳（用于过滤组合键长按）
+    /// Workaround: WezTerm 不会将 Shift+Enter 等组合键的 keyDown 转发给 IMK，
+    /// 导致 shiftPressedAlone 无法被清除。用时间窗口兜底，比修 WezTerm 快。
+    private var shiftDownTime: TimeInterval = 0
+    /// Shift 单击的最大时长（秒），超过视为组合键长按
+    private static let shiftMaxDuration: TimeInterval = 0.3
     /// 缓存最近的光标位置（用于 flagsChanged 时显示指示器）
     private var lastCursorRect = NSRect.zero
 
@@ -69,9 +75,12 @@ class LaplaceInputController: IMKInputController {
             let isShiftDown = event.modifierFlags.contains(.shift)
             if isShiftDown {
                 shiftPressedAlone = true
+                shiftDownTime = ProcessInfo.processInfo.systemUptime
             } else if shiftPressedAlone {
                 // Shift 松开且中间没有其他键：切换中英文
                 shiftPressedAlone = false
+                let elapsed = ProcessInfo.processInfo.systemUptime - shiftDownTime
+                guard elapsed <= Self.shiftMaxDuration else { return false }
                 if currentState.items.isEmpty {
                     Self.englishMode.toggle()
                     Self.indicator.showMode(english: Self.englishMode, near: lastCursorRect)
