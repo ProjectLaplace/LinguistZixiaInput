@@ -288,6 +288,38 @@ final class PinyinEngineTests: XCTestCase {
             "Unified DP should prefer 是什么呢 over 失神门额")
     }
 
+    func testDPCoveragePreventsSingleCharFiller() {
+        // "jingquepipei" — 景区+饿+匹配 has a single-char filler (饿);
+        // 精确+匹配 has full multi-char coverage and should win.
+        let state = type("jingquepipei")
+        XCTAssertEqual(state.candidates.first, "精确匹配",
+            "DP should prefer 精确匹配 (full coverage) over 景区饿匹配 (single-char filler)")
+    }
+
+    func testDPFewerWordsSplitPreferred() {
+        // "shenmetamadejiaojingxi" — "jiao" should NOT be split into "ji+a+o"
+        // because fewer words is better when coverage is equal
+        let state = type("shenmetamadejiaojingxi")
+        XCTAssertFalse(state.candidates.isEmpty)
+        let first = state.candidates.first ?? ""
+        // Should NOT contain the ji+a+o split pattern (级啊奥/级啊哦)
+        XCTAssertFalse(first.contains("级啊"),
+            "DP should not split jiao into ji+a+o, got: \(first)")
+        // Should contain 惊喜 (jingxi correctly matched as a multi-char word)
+        XCTAssertTrue(first.contains("惊喜"),
+            "DP should match 惊喜 as a multi-char word, got: \(first)")
+    }
+
+    func testDPLowFreqMultiCharNotCountedAsCoverage() {
+        // "shenmetamadejiaojingxi" — 的脚(dejiao, freq=5555) is a dictionary artifact
+        // It should NOT boost coverage because freq < 10000 threshold
+        // So the result should use 叫 (jiao alone) not 脚 (via 的脚 compound)
+        let state = type("shenmetamadejiaojingxi")
+        let first = state.candidates.first ?? ""
+        XCTAssertTrue(first.contains("叫"),
+            "Low-freq 的脚 should not boost coverage, expect 叫 not 脚, got: \(first)")
+    }
+
     func testAutoSplitPartialInput() {
         // "shij" — "shi" is complete, "j" is partial remainder
         let state = type("shij")

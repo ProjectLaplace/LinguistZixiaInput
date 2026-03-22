@@ -642,12 +642,39 @@ public class PinyinEngine {
             var syllables: [String]
             var multiCharScore: Double  // 多字词 log(freq) 之和
             var multiCharCount: Int     // 多字词数量（用于计算平均分）
-            var totalScore: Double      // 全部词 log(freq) 之和（次排序键）
+            var multiCharSylCount: Int  // 被多字词覆盖的音节数（用于计算覆盖率）
+            var totalScore: Double      // 全部词 log(freq) 之和
+            var wordCount: Int          // 总词数（越少越好）
             var sylCount: Int
         }
 
+        // DP 路径比较：综合评分
+        // 主键：compositeScore = avgMulti + 4 * coverage（平衡词质量与覆盖率）
+        // 次键：词数越少越好（避免 jiao 被拆成 ji+a+o）
+        // 末键：总 log(freq) 之和
+        //
+        // α=4 的直觉：覆盖率从 0.8→1.0（+0.2）等价于 avgMulti 提升 0.8。
+        // 这让高质量多字词（什么 log=13）能压过低质量全覆盖（失神+门额 avg=9），
+        // 同时让同质量下全覆盖（精确+匹配）胜过有单字填充的路径（景区+饿+匹配）。
+        func isBetter(_ a: DPState, than b: DPState) -> Bool {
+            func compositeScore(_ s: DPState) -> Double {
+                let avg = s.multiCharCount > 0
+                    ? s.multiCharScore / Double(s.multiCharCount) : -1
+                let cov = s.sylCount > 0
+                    ? Double(s.multiCharSylCount) / Double(s.sylCount) : 0
+                return avg + 4.0 * cov
+            }
+            let aScore = compositeScore(a)
+            let bScore = compositeScore(b)
+            if aScore != bScore { return aScore > bScore }
+            if a.wordCount != b.wordCount { return a.wordCount < b.wordCount }
+            return a.totalScore > b.totalScore
+        }
+
         var dp: [DPState?] = Array(repeating: nil, count: n + 1)
-        dp[n] = DPState(words: [], syllables: [], multiCharScore: 0, multiCharCount: 0, totalScore: 0, sylCount: 0)
+        dp[n] = DPState(
+            words: [], syllables: [], multiCharScore: 0, multiCharCount: 0,
+            multiCharSylCount: 0, totalScore: 0, wordCount: 0, sylCount: 0)
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
@@ -656,33 +683,33 @@ public class PinyinEngine {
                 guard let rest = dp[endPos] else { return }
 
                 let wordScore = log(Double(max(frequency, 1)))
-                let isMultiChar = word.count >= 2
+                // 低频多字词（freq < 10000）视为噪声，不计入多字词评分和覆盖率
+                // 例如「的脚」(5555) 不应作为多字词提升 coverage
+                let isMultiChar = word.count >= 2 && frequency >= 10000
                 let multiCharScore = (isMultiChar ? wordScore : 0) + rest.multiCharScore
                 let multiCharCount = (isMultiChar ? 1 : 0) + rest.multiCharCount
+                // 用 word.count（字数 = 真实音节数）而非 syllables.count（DFS 切分数）
+                // DFS 可能把 "yixia" 切成 ["yi","xi","a"]（3 段），但一下只有 2 个音节
+                let trueSylCount = word.count
+                let multiCharSylCount = (isMultiChar ? trueSylCount : 0) + rest.multiCharSylCount
                 let totalScore = wordScore + rest.totalScore
-                let totalSyls = syllables.count + rest.sylCount
-
-                // 多字词平均分：偏好更少但更高质量的多字词匹配
-                let avgMulti = multiCharCount > 0
-                    ? multiCharScore / Double(multiCharCount) : -1
+                // 低频多字词按字数计入词数，避免垃圾词（如「的脚」）通过减少词数获益
+                let wordCountContribution = (!isMultiChar && word.count >= 2) ? word.count : 1
+                let wordCount = wordCountContribution + rest.wordCount
+                let totalSyls = trueSylCount + rest.sylCount
 
                 let candidate = DPState(
                     words: [word] + rest.words,
                     syllables: syllables + rest.syllables,
                     multiCharScore: multiCharScore,
                     multiCharCount: multiCharCount,
+                    multiCharSylCount: multiCharSylCount,
                     totalScore: totalScore,
+                    wordCount: wordCount,
                     sylCount: totalSyls)
 
                 if let existing = dp[pos] {
-                    let existingAvgMulti = existing.multiCharCount > 0
-                        ? existing.multiCharScore / Double(existing.multiCharCount) : -1
-                    // 主键：多字词平均频分越高越好
-                    // 次键：总频分之和越高越好
-                    if avgMulti > existingAvgMulti
-                        || (avgMulti == existingAvgMulti
-                            && totalScore > existing.totalScore)
-                    {
+                    if isBetter(candidate, than: existing) {
                         dp[pos] = candidate
                     }
                 } else {
