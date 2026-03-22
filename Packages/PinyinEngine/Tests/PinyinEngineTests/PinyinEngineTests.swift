@@ -554,4 +554,44 @@ final class PinyinEngineTests: XCTestCase {
         // Composed candidate 西安 should be present
         XCTAssertTrue(state.candidates.contains("西安"), "Composed 西安 should appear for xi'an")
     }
+
+    // MARK: - Punctuation: Confirm + Commit
+
+    func testPunctuationEmptyBufferCommitsFullWidth() {
+        // No active input — comma should directly commit full-width comma
+        let state = engine.process(.punctuation(","))
+        XCTAssertEqual(state.committedText, "，")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testPunctuationWithCandidatesConfirmsFirstThenCommits() {
+        // Type pinyin to get candidates, then press comma
+        type("shi")
+        let state = engine.process(.punctuation(","))
+        // Should confirm first candidate + append full-width comma
+        XCTAssertNotNil(state.committedText)
+        XCTAssertTrue(state.committedText!.hasSuffix("，"))
+        // The text before the comma should be the first candidate (a Chinese character)
+        let textBeforePunctuation = String(state.committedText!.dropLast())
+        XCTAssertFalse(textBeforePunctuation.isEmpty)
+        XCTAssertTrue(state.items.isEmpty, "Buffer should be cleared after punctuation commit")
+    }
+
+    func testPunctuationPeriodConfirmsAndCommits() {
+        type("ni")
+        let state = engine.process(.punctuation("."))
+        XCTAssertNotNil(state.committedText)
+        XCTAssertTrue(state.committedText!.hasSuffix("。"))
+    }
+
+    func testConfirmPunctuationCharsConstantExists() {
+        // Verify the engine exposes the confirm punctuation set
+        let chars = PinyinEngine.confirmPunctuationChars
+        XCTAssertTrue(chars.contains(","))
+        XCTAssertTrue(chars.contains("."))
+        XCTAssertTrue(chars.contains("!"))
+        XCTAssertTrue(chars.contains("_"))
+        // Apostrophe is NOT in the set (handled as separator)
+        XCTAssertFalse(chars.contains("'"))
+    }
 }

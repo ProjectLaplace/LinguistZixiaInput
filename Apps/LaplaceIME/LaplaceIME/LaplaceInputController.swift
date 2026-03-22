@@ -37,11 +37,8 @@ class LaplaceInputController: IMKInputController {
         Profiler.event("IMK deactivateServer")
     }
 
-    private static let punctuationChars: Set<Character> = [
-        ",", ".", ";", ":", "?", "!", "\\",
-        "(", ")", "{", "}", "<", ">", "\"",
-        "~", "$", "^", "_", "`",
-    ]
+    /// 标点字符集：引用引擎层的权威定义
+    private static let punctuationChars = PinyinEngine.confirmPunctuationChars
     private static var candidatesWindow: IMKCandidates = {
         let candidates = IMKCandidates(
             server: NSApp.delegate is AppDelegate

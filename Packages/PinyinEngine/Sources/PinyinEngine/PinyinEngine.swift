@@ -119,6 +119,16 @@ public class PinyinEngine {
         "`": "·",
     ]
 
+    /// 可触发「确认首选 + 提交标点」的标点字符集。
+    /// 当缓冲区有候选时，这些字符会先确认首选候选再追加全角标点一并提交；
+    /// 缓冲区为空时，直接提交全角标点。
+    /// 注意：' 不在此集合中——有活跃拼音时作为分隔符，由 InputController 层特殊处理。
+    public static let confirmPunctuationChars: Set<Character> = [
+        ",", ".", ";", ":", "?", "!", "\\",
+        "(", ")", "{", "}", "<", ">", "\"",
+        "~", "$", "^", "_", "`",
+    ]
+
     /// 使用 Bundle 内置词库初始化
     public init() {
         loadDictionaries()
@@ -392,15 +402,16 @@ public class PinyinEngine {
 
     // MARK: - 全角标点
 
-    /// 处理标点输入：缓冲区非空时先提交，再输出全角标点
+    /// 处理标点输入：
+    /// - 缓冲区为空时，直接提交全角标点。
+    /// - 缓冲区有候选时，确认首选候选 + 提交全角标点。
+    /// - 缓冲区有内容但无候选时，提交缓冲区原始内容 + 全角标点。
     private func handlePunctuation(_ char: Character) -> String? {
         let fullWidth = mapToFullWidth(char)
 
         if composingItems.isEmpty {
-            // 缓冲区为空，直接输出全角标点
             return fullWidth
         } else {
-            // 缓冲区非空：先用首选候选提交缓冲区，再追加标点
             var result = ""
             if let first = candidates.first {
                 finalizeAllPinyin(with: first)
