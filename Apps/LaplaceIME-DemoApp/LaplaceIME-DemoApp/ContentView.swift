@@ -88,7 +88,7 @@ struct ContentView: View {
             // 3. 底部：最终结果展示区
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("仿真上屏结果 (Output Document)")
+                    Text("仿真提交结果 (Output Document)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()

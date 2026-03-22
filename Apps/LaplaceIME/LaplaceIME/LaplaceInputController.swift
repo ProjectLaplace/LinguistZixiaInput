@@ -158,7 +158,7 @@ class LaplaceInputController: IMKInputController {
     // MARK: - 状态应用
 
     private func applyState(to client: any IMKTextInput) {
-        // 上屏已提交的文本
+        // 提交文本到目标应用
         if let committed = currentState.committedText {
             client.insertText(
                 committed, replacementRange: NSRange(location: NSNotFound, length: NSNotFound))

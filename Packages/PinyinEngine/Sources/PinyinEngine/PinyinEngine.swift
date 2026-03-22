@@ -65,7 +65,7 @@ public struct EngineState {
     public let items: [ComposingItem]
     /// 针对当前聚焦段生成的候选词列表
     public let candidates: [String]
-    /// 本轮交互产生的上屏文本（如有）
+    /// 本轮交互产生的待提交文本（如有）
     public let committedText: String?
     /// 当前引擎所处的输入模式
     public let mode: InputMode
@@ -317,24 +317,24 @@ public class PinyinEngine {
 
     // MARK: - 空格提交
 
-    /// 处理空格键：确认候选并上屏
+    /// 处理空格键：确认候选并提交
     private func handleSpace() -> String? {
         guard !composingItems.isEmpty else { return nil }
 
         if let first = candidates.first {
             if focusIndex != nil {
-                // Tab 聚焦模式：只确认聚焦段，不上屏
+                // Tab 聚焦模式：只确认聚焦段，不提交
                 confirmFocusedSegment(with: first)
                 return nil
             } else {
-                // 正常模式：用候选替换整个拼音串，然后上屏全部
+                // 正常模式：用候选替换整个拼音串，然后提交全部
                 finalizeAllPinyin(with: first)
                 let result = composingItems.map { $0.content }.joined()
                 resetAll()
                 return result
             }
         } else if !composingItems.isEmpty {
-            // 无候选时（包括 Tab 模式全部确认后），上屏已组合的内容
+            // 无候选时（包括 Tab 模式全部确认后），提交缓冲区内容
             let result = composingItems.map { $0.content }.joined()
             resetAll()
             return result
@@ -356,7 +356,7 @@ public class PinyinEngine {
             // 首段补充候选：只确认首段，剩余拼音继续组词
             confirmFirstSegment(with: candidates[actualIndex])
         } else {
-            // 正常模式：用候选替换整个拼音串，不上屏
+            // 正常模式：用候选替换整个拼音串，不提交（等待后续输入或空格提交）
             finalizeAllPinyin(with: candidates[actualIndex])
         }
     }
@@ -668,7 +668,7 @@ public class PinyinEngine {
         rawPinyin = composingItems.compactMap { $0.sourcePinyin }.joined()
     }
 
-    /// 获取用于 Enter 上屏的原文（拼音原文 + 已确定文本）
+    /// 获取用于 Enter 提交的原文（拼音原文 + 已确定文本）
     private func rawContentForCommit() -> String {
         composingItems.map {
             switch $0 {

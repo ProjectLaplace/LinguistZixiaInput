@@ -3,7 +3,7 @@ import os
 
 /// 轻量级性能打点工具。超过阈值时通过 os_log 输出，平时零开销。
 /// 日志可在 Console.app 中通过 Process "LaplaceIME" 过滤查看。
-/// 同时在内存中聚合统计（count/avg/p95/max），通过 vprofile 上屏查看。
+/// 同时在内存中聚合统计（count/avg/p95/max），通过 vprofile 提交查看。
 public enum Profiler {
     private static let logger = Logger(
         subsystem: "org.1b2c.inputmethod.LaplaceIME", category: "perf")
