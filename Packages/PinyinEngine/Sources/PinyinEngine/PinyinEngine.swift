@@ -100,6 +100,8 @@ public class PinyinEngine {
     private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
 
     private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
+    private var firstSegmentCandidateStart: Int = 0  // 首段补充候选在 candidates 中的起始位置
+    private var firstSegmentPinyin: String = ""  // 首段拼音（用于部分确认后截断 rawPinyin）
 
     // 全角标点状态
     private var doubleQuoteOpen = false  // " 的开闭状态
@@ -290,6 +292,9 @@ public class PinyinEngine {
         if focusIndex != nil {
             // Tab 聚焦模式：确认聚焦段
             confirmFocusedSegment(with: candidates[actualIndex])
+        } else if firstSegmentCandidateStart > 0 && actualIndex >= firstSegmentCandidateStart {
+            // 首段补充候选：只确认首段，剩余拼音继续组词
+            confirmFirstSegment(with: candidates[actualIndex])
         } else {
             // 正常模式：用候选替换整个拼音串，不上屏
             finalizeAllPinyin(with: candidates[actualIndex])
@@ -402,7 +407,7 @@ public class PinyinEngine {
         updateCandidatesWholeString(defaultSyllables: defaultSyllables, remainder: remainder)
     }
 
-    /// 更新候选词：系统整串 → 用户词典 → 统一 DP 组词 → 前缀 → 末段兜底
+    /// 更新候选词：精确匹配 → DP 组词 → 首段补充候选 → 前缀 → 末段兜底
     private func updateCandidatesWholeString(defaultSyllables: [String], remainder: String) {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
@@ -426,26 +431,49 @@ public class PinyinEngine {
             }
         }
 
-        // 3. 统一 DP 组词（同时优化音节切分和词库匹配）
-        // 仅影响候选词，不改变 composingItems 的显示切分
-        var composed: String? = nil
-        if remainder.isEmpty && defaultSyllables.count > 1 {
-            if let result = unifiedCompose(cleanPinyin, store: store) {
-                composed = result.text
-            }
-        }
-
-        // 4. 合并：系统整串 → 用户词典（去重）
+        // 3. 合并：系统整串 → 用户词典（去重）
         var result = wholeMatches
         let wholeSet = Set(wholeMatches)
         for word in userResults where !wholeSet.contains(word) {
             result.append(word)
         }
 
-        // 5. 自动组合候选仅在没有任何真实匹配时作为兜底
-        if result.isEmpty {
-            if let composed = composed {
-                result.append(composed)
+        // 4. 有精确匹配时跳过 DP；无精确匹配时用 DP 组词
+        var dpResult: (text: String, syllables: [String], words: [String])? = nil
+        if result.isEmpty && remainder.isEmpty && defaultSyllables.count > 1 {
+            dpResult = unifiedCompose(cleanPinyin, store: store)
+            if let composed = dpResult {
+                result.append(composed.text)
+            }
+        }
+
+        // 5. 首段补充候选：从 DP 结果或 PinyinSplitter 获取首段拼音，
+        //    追加该拼音的其他候选，方便用户快速替换首词继续组词
+        firstSegmentCandidateStart = 0
+        firstSegmentPinyin = ""
+        if remainder.isEmpty && defaultSyllables.count > 1 {
+            // 确定首段拼音：优先用 DP 结果的第一个词对应的音节
+            let firstPinyin: String
+            if let dp = dpResult, !dp.words.isEmpty {
+                // DP 第一个词可能跨多个音节，取对应的音节拼接
+                let firstWordCharCount = dp.words[0].count
+                // 从 syllables 中取前 N 个音节（N = 第一个词的字数）
+                let firstSyllables = Array(dp.syllables.prefix(firstWordCharCount))
+                firstPinyin = firstSyllables.joined()
+            } else {
+                // 没有 DP 结果，用 PinyinSplitter 的第一个音节
+                firstPinyin = Self.normalizePinyin(defaultSyllables[0])
+            }
+
+            let firstSegCandidates = store?.candidates(for: firstPinyin) ?? []
+            // 去掉已在主候选中出现的、以及与 DP 首词相同的
+            let existingSet = Set(result)
+            let filtered = firstSegCandidates.filter { !existingSet.contains($0) }
+
+            if !filtered.isEmpty {
+                firstSegmentCandidateStart = result.count
+                firstSegmentPinyin = firstPinyin
+                result.append(contentsOf: filtered)
             }
         }
 
@@ -515,6 +543,37 @@ public class PinyinEngine {
         }
     }
 
+    /// 确认首段候选：只替换首段拼音为选中文字，剩余拼音继续组词
+    private func confirmFirstSegment(with text: String) {
+        guard !firstSegmentPinyin.isEmpty else { return }
+
+        // 将首段确认为 .text，截掉 rawPinyin 中对应的首段拼音
+        let cleanRaw = rawPinyin.replacingOccurrences(of: "'", with: "")
+        let normalizedRaw = Self.normalizePinyin(cleanRaw)
+        let normalizedFirst = firstSegmentPinyin  // 已经 normalized
+
+        guard normalizedRaw.hasPrefix(normalizedFirst) else { return }
+
+        // 更新 rawPinyin：移除首段拼音（在原始 rawPinyin 中定位）
+        // 需要从原始 rawPinyin 中去掉对应长度的字符
+        let remainingNormalized = String(normalizedRaw.dropFirst(normalizedFirst.count))
+
+        // 重建：confirmed text + 剩余拼音继续组词
+        let confirmedPrefix = composingItems.filter { !$0.isEditable }
+        composingItems = confirmedPrefix
+        composingItems.append(.text(text))
+        rawPinyin = remainingNormalized
+        focusIndex = nil
+        firstSegmentCandidateStart = 0
+        firstSegmentPinyin = ""
+
+        if rawPinyin.isEmpty {
+            candidates = []
+        } else {
+            rebuildFromRawPinyin()
+        }
+    }
+
     /// 从 composingItems 中残存的可编辑项重建 rawPinyin
     private func rebuildRawPinyinFromItems() {
         rawPinyin = composingItems.compactMap { $0.sourcePinyin }.joined()
@@ -537,6 +596,8 @@ public class PinyinEngine {
         candidates = []
         rawPinyin = ""
         focusIndex = nil
+        firstSegmentCandidateStart = 0
+        firstSegmentPinyin = ""
         if currentMode == .transient { currentMode = .pinyin }
     }
 
@@ -567,9 +628,9 @@ public class PinyinEngine {
     /// - Parameters:
     ///   - input: 原始拼音字符串（不含撇号，已小写）
     ///   - store: 词库
-    /// - Returns: (组词结果, 音节切分) 或 nil（无法完全覆盖）
+    /// - Returns: (组词结果, 音节切分, 逐词拆分) 或 nil（无法完全覆盖）
     private func unifiedCompose(_ input: String, store: DictionaryStore?)
-        -> (text: String, syllables: [String])?
+        -> (text: String, syllables: [String], words: [String])?
     {
         guard let store = store, !input.isEmpty else { return nil }
 
@@ -631,7 +692,7 @@ public class PinyinEngine {
         }
 
         guard let best = dp[0] else { return nil }
-        return (best.words.joined(), best.syllables)
+        return (best.words.joined(), best.syllables, best.words)
     }
 
     /// 枚举从 pos 开始的所有合法短语：用 DFS 尝试连续音节组合并查词库。

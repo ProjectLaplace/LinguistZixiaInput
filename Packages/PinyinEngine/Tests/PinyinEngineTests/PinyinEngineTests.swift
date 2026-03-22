@@ -412,6 +412,86 @@ final class PinyinEngineTests: XCTestCase {
 
     // MARK: - Apostrophe Separation (撇号分隔)
 
+    // MARK: - First Segment Candidates
+
+    func testFirstSegmentCandidatesAppearAfterExactMatch() {
+        // "shijian" has exact matches like 时间/世间, and should also show
+        // candidates for the first segment "shi" (是/时/十...) after the exact matches
+        let state = type("shijian")
+        XCTAssertFalse(state.candidates.isEmpty)
+        // Exact matches should come first
+        XCTAssertTrue(state.candidates.contains("时间"), "时间 should be in candidates")
+        // First-segment candidates should also be present (alternatives for "shi")
+        // "是" is the top candidate for "shi" and should appear as a supplement
+        let hasFirstSegCandidates = state.candidates.contains("是") || state.candidates.contains("十")
+        XCTAssertTrue(hasFirstSegCandidates, "First segment alternatives for 'shi' should appear")
+    }
+
+    func testFirstSegmentCandidateConfirmsOnlyFirstSegment() {
+        // Type "shijian", select a first-segment candidate (e.g., "是")
+        // Should confirm "是" as .text and continue composing "jian"
+        let state = type("shijian")
+        // Find "是" in candidates — it should be a first-segment candidate
+        guard let idx = state.candidates.firstIndex(of: "是") else {
+            XCTFail("是 should be in candidates for shijian")
+            return
+        }
+        // Select it (number keys are 1-based)
+        let afterSelect = number(idx + 1)
+        // Should NOT commit — buffer should have confirmed text + remaining pinyin
+        XCTAssertNil(afterSelect.committedText)
+        // Buffer should contain confirmed "是" followed by composing pinyin for "jian"
+        XCTAssertTrue(afterSelect.items.contains(.text("是")),
+            "Buffer should contain confirmed 是")
+        let hasPinyin = afterSelect.items.contains(where: { $0.isPinyin })
+        XCTAssertTrue(hasPinyin, "Buffer should still have pinyin items for 'jian'")
+        // Candidates should now be for "jian"
+        XCTAssertTrue(afterSelect.candidates.contains("间") || afterSelect.candidates.contains("见"),
+            "Candidates should be for remaining 'jian'")
+    }
+
+    func testFirstSegmentThenSpaceCommits() {
+        // Type "shijian", select first-segment "是", then space to commit
+        let state = type("shijian")
+        guard let idx = state.candidates.firstIndex(of: "是") else {
+            XCTFail("是 should be in candidates for shijian")
+            return
+        }
+        let s2 = number(idx + 1)  // confirm "是" as first segment
+        XCTAssertNil(s2.committedText)
+        let committed = space()  // commit the whole buffer
+        XCTAssertNotNil(committed.committedText)
+        // Should start with 是
+        XCTAssertTrue(committed.committedText?.hasPrefix("是") == true,
+            "Committed text should start with 是, got: \(committed.committedText ?? "nil")")
+    }
+
+    func testExactMatchSkipsDPComposition() {
+        // "shijian" has exact matches (时间, 世间, etc.)
+        // DP composition should NOT be triggered — candidates should be exact matches
+        // plus first-segment alternatives, NOT a DP-composed string
+        let state = type("shijian")
+        // The first candidate should be an exact match, not a DP composition
+        XCTAssertEqual(state.candidates.first, "时间",
+            "First candidate should be exact match 时间, not DP composition")
+    }
+
+    func testDPCompositionWithFirstSegmentCandidates() {
+        // "shishenmene" has no exact match, so DP should compose "是什么呢"
+        // and also show first-segment candidates for the DP first word's pinyin
+        let state = type("shishenmene")
+        XCTAssertFalse(state.candidates.isEmpty)
+        XCTAssertEqual(state.candidates.first, "是什么呢",
+            "First candidate should be DP composed 是什么呢")
+        // Should also have first-segment candidates for "shi" (是/时/十...)
+        // But "是" might already be the first char of the composed result,
+        // so check for other alternatives
+        let hasAlternatives = state.candidates.contains("时") || state.candidates.contains("十")
+            || state.candidates.contains("事")
+        XCTAssertTrue(hasAlternatives,
+            "Should have first-segment alternatives like 时/十/事")
+    }
+
     func testApostropheSeparationCandidates() {
         // "xi'an" — user explicitly separates into xi + an
         // Candidates should NOT include single-char words like 先/现 (those match "xian" as one syllable)
