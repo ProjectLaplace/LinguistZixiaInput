@@ -557,7 +557,11 @@ public class PinyinEngine {
                 firstPinyin = Self.normalizePinyin(defaultSyllables[0])
             }
 
-            let firstSegCandidates = store?.candidates(for: firstPinyin) ?? []
+            var firstSegCandidates = store?.candidates(for: firstPinyin) ?? []
+            // 固顶字也应用到首段补充候选
+            if currentMode == .pinyin {
+                firstSegCandidates = applyPinnedChars(for: firstPinyin, to: firstSegCandidates)
+            }
             // 去掉已在主候选中出现的、以及与 DP 首词相同的
             let existingSet = Set(result)
             let filtered = firstSegCandidates.filter { !existingSet.contains($0) }
