@@ -91,6 +91,7 @@ public class PinyinEngine {
     private var jaStore: DictionaryStore?
     private var userDict: UserDictionary?
     private var pinnedChars: PinnedCharStore?
+    private var customPhrases: CustomPhraseStore?
 
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
@@ -134,6 +135,7 @@ public class PinyinEngine {
         loadDictionaries()
         userDict = UserDictionary()
         pinnedChars = PinnedCharStore.loadDefault()
+        customPhrases = CustomPhraseStore.loadDefault()
     }
 
     /// 使用指定的词库文件路径初始化
@@ -142,15 +144,17 @@ public class PinyinEngine {
         jaStore = DictionaryStore(path: jaDictPath)
     }
 
-    /// 使用指定的词库文件路径、用户词典路径和固顶字初始化（用于测试）
+    /// 使用指定的词库文件路径、用户词典路径、固顶字和自定义短语初始化（用于测试）
     public init(
         zhDictPath: String, jaDictPath: String, userDictPath: String,
-        pinnedChars: PinnedCharStore? = nil
+        pinnedChars: PinnedCharStore? = nil,
+        customPhrases: CustomPhraseStore? = nil
     ) {
         zhStore = DictionaryStore(path: zhDictPath)
         jaStore = DictionaryStore(path: jaDictPath)
         userDict = UserDictionary(path: userDictPath)
         self.pinnedChars = pinnedChars
+        self.customPhrases = customPhrases
     }
 
     // MARK: - 词库加载
@@ -346,6 +350,18 @@ public class PinyinEngine {
 
     /// 处理数字选词
     private func handleNumber(_ index: Int) -> String? {
+        // 自定义短语模式：rawPinyin 含 _ 且追加数字后能匹配到短语时，
+        // 数字作为短语名的一部分（紫光惯例：sz_1、bq_2）。
+        // 否则正常选词（如 dw_ 展开后用数字从候选列表选择）。
+        if rawPinyin.contains("_") {
+            let extended = rawPinyin + String(index)
+            if customPhrases?.hasPhrase(extended) == true {
+                rawPinyin = extended
+                rebuildFromRawPinyin()
+                return nil
+            }
+        }
+
         let actualIndex = index - 1
         guard actualIndex >= 0 && actualIndex < candidates.count else { return nil }
 
@@ -478,8 +494,11 @@ public class PinyinEngine {
         let _ucStart = CFAbsoluteTimeGetCurrent()
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
-        // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
+        // 0. 自定义短语：rawPinyin 完全匹配短语名时，短语候选置顶
         let cleanPinyin = Self.normalizePinyin(rawPinyin.replacingOccurrences(of: "'", with: ""))
+        let customResults = customPhrases?.phrases(for: cleanPinyin) ?? []
+
+        // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
         var wholeMatches = store?.candidates(for: cleanPinyin) ?? []
 
         let hasApostrophe = rawPinyin.contains("'")
@@ -574,6 +593,12 @@ public class PinyinEngine {
         // 固顶字：单音节（含不完整前缀）时，将固顶字插入候选列表最前面
         if currentMode == .pinyin && defaultSyllables.count <= 1 {
             result = applyPinnedChars(for: cleanPinyin, to: result)
+        }
+
+        // 自定义短语置顶（去重）
+        if !customResults.isEmpty {
+            let customSet = Set(customResults)
+            result = customResults + result.filter { !customSet.contains($0) }
         }
 
         candidates = result

@@ -147,7 +147,7 @@ class LaplaceInputController: IMKInputController {
 
         guard let chars = event.characters, let first = chars.first else { return nil }
 
-        if first.isLetter {
+        if first.isLetter || first == "_" {
             return .letter(first)
         } else if first.isNumber, let num = Int(String(first)), num >= 1, num <= 9 {
             return .number(num)
