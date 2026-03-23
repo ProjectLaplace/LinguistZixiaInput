@@ -506,8 +506,14 @@ public class PinyinEngine {
         }
 
         // 4. 有精确匹配时跳过 DP；无精确匹配时用 DP 组词
+        //    触发条件：多音节且无精确匹配。remainder 为裸声母时也触发（如 gangcd → gang+c, remainder=d）
+        let remainderIsBareInitial =
+            !remainder.isEmpty && PinyinSplitter.validInitials.contains(remainder)
+        let shouldRunDP =
+            result.isEmpty && defaultSyllables.count > 1
+            && (remainder.isEmpty || remainderIsBareInitial)
         var dpResult: (text: String, syllables: [String], words: [String])? = nil
-        if result.isEmpty && remainder.isEmpty && defaultSyllables.count > 1 {
+        if shouldRunDP {
             dpResult = unifiedCompose(cleanPinyin, store: store)
             if let composed = dpResult {
                 result.append(composed.text)
@@ -518,7 +524,7 @@ public class PinyinEngine {
         //    追加该拼音的其他候选，方便用户快速替换首词继续组词
         firstSegmentCandidateStart = 0
         firstSegmentPinyin = ""
-        if remainder.isEmpty && defaultSyllables.count > 1 {
+        if (remainder.isEmpty || remainderIsBareInitial) && defaultSyllables.count > 1 {
             // 确定首段拼音：优先用 DP 结果的第一个词对应的音节
             let firstPinyin: String
             if let dp = dpResult, !dp.words.isEmpty {
@@ -546,16 +552,16 @@ public class PinyinEngine {
 
         // 6. 前缀匹配兜底：精确匹配和 DP 都无结果时，用前缀匹配补充候选。
         //    两种触发场景：
-        //    a) 音节不完整（remainder 不为空），如 b → ba, bai, ban...
+        //    a) 音节不完整（remainder 不为空），如 b → ba, bai, ban... / xiangf → xiangfa...
         //    b) 单音节但词库无精确条目（如 n 是合法音节但词库无 pinyin='n'）
-        //    单字限制：无完整多音节时只返回单字，防止声母前缀（如 b）匹配出「版权」等词
+        //    单字限制：仅当无完整音节时（纯声母如 b/d），限制为单字，
+        //    防止声母前缀匹配出「版权」等词；有完整音节时（如 xiangf）不限制。
         if result.isEmpty && (!remainder.isEmpty || defaultSyllables.count == 1) {
             let prefixResults = store?.candidatesWithPrefix(cleanPinyin) ?? []
-            let hasMultipleSyllables = defaultSyllables.count > 1
             result =
-                hasMultipleSyllables
-                ? prefixResults
-                : prefixResults.filter { $0.count == 1 }
+                defaultSyllables.isEmpty
+                ? prefixResults.filter { $0.count == 1 }
+                : prefixResults
         }
 
         // 7. 如果仍然没有，尝试最后一个活跃段的候选
@@ -757,12 +763,16 @@ public class PinyinEngine {
             var multiCharSylCount: Int  // 被多字词覆盖的音节数（用于计算覆盖率）
             var totalScore: Double  // 全部词 log(freq) 之和
             var wordCount: Int  // 总词数（越少越好）
-            var sylCount: Int
+            var sylCount: Int  // 语义音节数（= 字数之和）
+            var splitCount: Int  // DFS 切分段数（越少越好，避免 gang→ga+ng）
         }
 
         // DP 路径比较：综合评分
         // 主键：compositeScore = avgMulti + 4 * coverage（平衡词质量与覆盖率）
         // 次键：词数越少越好（避免 jiao 被拆成 ji+a+o）
+        // 三键：切分段数越少越好（避免 gang 被拆成 ga+ng）
+        //        原则：系统应优先选更紧凑的切分，用户可以用 ' 主动拆分，
+        //        但无法反向合并系统已拆开的音节。
         // 末键：总 log(freq) 之和
         //
         // α=4 的直觉：覆盖率从 0.8→1.0（+0.2）等价于 avgMulti 提升 0.8。
@@ -782,13 +792,14 @@ public class PinyinEngine {
             let bScore = compositeScore(b)
             if aScore != bScore { return aScore > bScore }
             if a.wordCount != b.wordCount { return a.wordCount < b.wordCount }
+            if a.splitCount != b.splitCount { return a.splitCount < b.splitCount }
             return a.totalScore > b.totalScore
         }
 
         var dp: [DPState?] = Array(repeating: nil, count: n + 1)
         dp[n] = DPState(
             words: [], syllables: [], multiCharScore: 0, multiCharCount: 0,
-            multiCharSylCount: 0, totalScore: 0, wordCount: 0, sylCount: 0)
+            multiCharSylCount: 0, totalScore: 0, wordCount: 0, sylCount: 0, splitCount: 0)
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
@@ -820,7 +831,8 @@ public class PinyinEngine {
                     multiCharSylCount: multiCharSylCount,
                     totalScore: totalScore,
                     wordCount: wordCount,
-                    sylCount: totalSyls)
+                    sylCount: totalSyls,
+                    splitCount: syllables.count + rest.splitCount)
 
                 if let existing = dp[pos] {
                     if isBetter(candidate, than: existing) {
@@ -838,6 +850,8 @@ public class PinyinEngine {
 
     /// 枚举从 pos 开始的所有合法短语：用 DFS 尝试连续音节组合并查词库。
     /// 每找到一个词库匹配就回调 (word, frequency, syllables, endPos)。
+    /// 支持裸声母展开：当位置上的字符是合法声母但不构成完整音节时，
+    /// 展开为该声母的所有合法音节，查词库取 top 单字参与评分。
     private func enumeratePhrases(
         chars: [Character], from startPos: Int, store: DictionaryStore,
         callback: (String, Int, [String], Int) -> Void
@@ -850,6 +864,7 @@ public class PinyinEngine {
 
             let remaining = n - curPos
             let maxLen = min(remaining, maxSyl)
+            var foundSyllable = false
 
             for sylLen in 1...maxLen {
                 let syllable = String(chars[curPos..<(curPos + sylLen)])
@@ -859,6 +874,7 @@ public class PinyinEngine {
                         || PinyinSplitter.validSyllables.contains(syllable)
                 else { continue }
 
+                foundSyllable = true
                 let newPinyin = accPinyin + normalized
                 let newSyllables = accSyllables + [syllable]
                 let newPos = curPos + sylLen
@@ -870,6 +886,37 @@ public class PinyinEngine {
 
                 // 继续延伸，尝试更长的短语
                 dfs(newPos, newPinyin, newSyllables)
+            }
+
+            // 裸声母展开：当前位置无法构成完整音节时，
+            // 检查是否为合法声母，展开为所有合法音节查词库候选。
+            // - 顶层（accPinyin 为空）：仅取单字，避免裸声母直接映射到多字词
+            // - DFS 递归内（accPinyin 非空）：允许多字词，利用上下文短语匹配
+            //   如 gang+c 展开为 gangcai → 刚才（高频双字词胜过 gang→刚 + c→从）
+            // 不继续 DFS 延伸，避免组合爆炸。
+            if !foundSyllable {
+                let isTopLevel = accPinyin.isEmpty
+                // 尝试双字母声母（zh/ch/sh），再尝试单字母声母
+                for initialLen in [2, 1] {
+                    guard initialLen <= remaining else { continue }
+                    let initial = String(chars[curPos..<(curPos + initialLen)])
+                    guard let expansions = PinyinSplitter.syllablesForInitial[initial] else {
+                        continue
+                    }
+
+                    let newPos = curPos + initialLen
+                    for expanded in expansions {
+                        let expandedPinyin = accPinyin + expanded
+                        if let top = store.topCandidate(for: expandedPinyin) {
+                            // 顶层展开只取单字；递归内允许多字词（有短语上下文）
+                            if !isTopLevel || top.word.count == 1 {
+                                callback(
+                                    top.word, top.frequency, accSyllables + [initial], newPos)
+                            }
+                        }
+                    }
+                    break  // 优先双字母声母，匹配到就不再尝试单字母
+                }
             }
         }
 

@@ -105,6 +105,41 @@ public enum PinyinSplitter {
         return result
     }()
 
+    /// 合法声母集合（含双字母声母 zh/ch/sh）
+    static let validInitials: Set<String> = [
+        "b", "p", "m", "f",
+        "d", "t", "n", "l",
+        "g", "k", "h",
+        "j", "q", "x",
+        "zh", "ch", "sh", "r",
+        "z", "c", "s",
+    ]
+
+    /// 声母→合法音节列表映射，用于 DP 中裸声母展开。
+    /// 每个音节归属于其最长匹配声母（如 chi 归 ch，ci 归 c）。
+    static let syllablesForInitial: [String: [String]] = {
+        var map: [String: [String]] = [:]
+        for initial in validInitials {
+            map[initial] = []
+        }
+        for syllable in validSyllables {
+            // 找最长匹配声母
+            var best: String?
+            for initial in validInitials where syllable.hasPrefix(initial) {
+                if best == nil || initial.count > best!.count {
+                    best = initial
+                }
+            }
+            if let initial = best, syllable != initial {
+                map[initial]?.append(syllable)
+            }
+        }
+        for key in map.keys {
+            map[key]?.sort()
+        }
+        return map
+    }()
+
     /// Maximum length of any valid pinyin syllable.
     static let maxSyllableLength: Int = {
         validSyllables.map(\.count).max() ?? 6
@@ -169,8 +204,12 @@ public enum PinyinSplitter {
             for prefixLen in stride(from: chars.count - 1, through: 0, by: -1) {
                 if prefixLen == 0 {
                     // Nothing can be split from this segment
-                    let remainder = hardSegments[index...].map(String.init).joined(separator: "'")
-                    return (allSyllables, remainder)
+                    var rawRemainder = hardSegments[index...].map(String.init).joined(
+                        separator: "'")
+                    // 尝试从 remainder 中拆出声母
+                    let (initials, leftover) = splitInitials(rawRemainder)
+                    allSyllables.append(contentsOf: initials)
+                    return (allSyllables, leftover)
                 }
                 if let syllables = splitSegment(Array(chars[0..<prefixLen])) {
                     allSyllables.append(contentsOf: syllables)
@@ -181,16 +220,63 @@ public enum PinyinSplitter {
                         remainingParts.append(
                             contentsOf: hardSegments[(index + 1)...].map(String.init))
                     }
-                    return (allSyllables, remainingParts.joined(separator: "'"))
+                    let rawRemainder = remainingParts.joined(separator: "'")
+                    // 尝试从 remainder 中拆出声母
+                    let (initials, leftover) = splitInitials(rawRemainder)
+                    allSyllables.append(contentsOf: initials)
+                    return (allSyllables, leftover)
                 }
             }
 
             // Should not reach here, but safety fallback
-            let remainder = hardSegments[index...].map(String.init).joined(separator: "'")
-            return (allSyllables, remainder)
+            let rawRemainder = hardSegments[index...].map(String.init).joined(separator: "'")
+            let (initials, leftover) = splitInitials(rawRemainder)
+            allSyllables.append(contentsOf: initials)
+            return (allSyllables, leftover)
         }
 
         return (allSyllables, "")
+    }
+
+    /// 将 remainder 中的连续声母拆为独立音节，保留最后一个声母作为 remainder
+    /// （用户可能还在继续输入该音节的韵母）。
+    /// 例如 "cd" → (["c"], "d"), "chzb" → (["ch", "z"], "b"), "f" → ([], "f")
+    /// 贪心匹配最长声母（zh/ch/sh 优先于 z/c/s）。
+    private static func splitInitials(_ input: String) -> (initials: [String], remainder: String) {
+        let chars = Array(input)
+        var pos = 0
+        var initials: [String] = []
+
+        while pos < chars.count {
+            // 尝试双字母声母
+            if pos + 1 < chars.count {
+                let two = String(chars[pos...(pos + 1)])
+                if validInitials.contains(two) {
+                    initials.append(two)
+                    pos += 2
+                    continue
+                }
+            }
+            // 尝试单字母声母
+            let one = String(chars[pos])
+            if validInitials.contains(one) {
+                initials.append(one)
+                pos += 1
+            } else {
+                // 非声母字符，停止
+                break
+            }
+        }
+
+        // 最后一个声母退回 remainder（用户可能还在输入韵母）
+        let remainder: String
+        if let last = initials.popLast() {
+            let leftover = pos < chars.count ? String(chars[pos...]) : ""
+            remainder = last + leftover
+        } else {
+            remainder = pos < chars.count ? String(chars[pos...]) : input
+        }
+        return (initials, remainder)
     }
 
     /// Split a single segment (no apostrophes) into syllables using DP.

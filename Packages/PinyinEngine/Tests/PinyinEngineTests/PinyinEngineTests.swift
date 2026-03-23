@@ -594,4 +594,15 @@ final class PinyinEngineTests: XCTestCase {
         // Apostrophe is NOT in the set (handled as separator)
         XCTAssertFalse(chars.contains("'"))
     }
+
+    // MARK: - Bare-initial expansion
+
+    func testBareInitialExpansionGangcd() {
+        let state = type("gangcd")
+        // DP 展开裸声母：gang+c(→cai)+d(→de) 利用短语上下文组出「刚才的」
+        XCTAssertEqual(state.candidates.first, "刚才的")
+
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "刚才的")
+    }
 }

@@ -1,45 +1,134 @@
 %%{
     machine laplace_core;
 
-    # --- 动作定义 ---
-    action toggle_mode    { if (buffer.isEmpty) mode = (mode == ZH ? JA : ZH) }
-    action append_pinyin  { currentSegment.append(fc) }
-    action finalize_item  { buffer.push(selectedCandidate); currentSegment.clear() }
-    action pick_char      { buffer.push(pick(candidates[0], fc)); currentSegment.clear() }
+    # ====================================================================
+    # LaplaceIME 核心状态机（设计文档，非编译代码）
+    #
+    # 术语：
+    #   预输入文本 (marked text)  — 宿主应用中带下划线的组合文本
+    #   候选窗口 (candidates)     — IMKCandidates 浮动窗口
+    #   提交 (commit)             — 文本最终进入宿主应用
+    #
+    # 核心状态变量：
+    #   rawPinyin        — 当前活跃的拼音输入串
+    #   composingItems   — 复合缓冲区 [.text | .pinyin | .provisional]
+    #   candidates       — 当前候选词列表
+    #   focusIndex       — Tab 聚焦段索引（nil = 正常模式）
+    #   firstSegmentCandidateStart — 首段补充候选的起始位置
+    # ====================================================================
 
-    action commit_all     { result.push(buffer.all); reset_engine() }
-    action commit_raw     { result.push(raw_input); reset_engine() }
-    action auto_revert    { if (mode == JA) mode = ZH }
+    # --- 动作定义 ---
+
+    # 追加字母到 rawPinyin，触发 rebuildFromRawPinyin 重建 composingItems
+    action append_pinyin  { rawPinyin.append(fc); rebuildFromRawPinyin() }
+
+    # 退格：删 rawPinyin 末字符或最后一个 .text
+    action backspace {
+        if (focusIndex != nil) { focusIndex = nil; rebuildFromRawPinyin() }
+        else if (!rawPinyin.isEmpty) { rawPinyin.removeLast(); rebuildFromRawPinyin() }
+        else { composingItems.removeLast() }
+    }
+
+    # 模式切换：仅在段落边界且为 i 键时触发
+    action toggle_mode {
+        if (atSegmentBoundary) mode = (mode == ZH ? JA : ZH)
+    }
+
+    # 数字选词：根据模式决定确认段还是提交
+    action select_candidate {
+        if (focusIndex != nil) {
+            confirmFocusedSegment(candidates[n])       # Tab 模式：确认聚焦段
+        } else if (n >= firstSegmentCandidateStart) {
+            confirmFirstSegment(candidates[n])          # 首段补充：确认首段继续组词
+        } else {
+            finalizeAllPinyin(candidates[n])             # 正常模式：提交
+            commit(buffer.all); reset_engine()
+        }
+    }
+
+    # 以词定字：从首选中截取首/尾字，确认或提交
+    action pick_char {
+        char = pick(candidates[0], bracket_dir)
+        if (focusIndex != nil) { confirmFocusedSegment(char) }
+        else { finalizeAllPinyin(char); /* 不提交，留在 buffer */ }
+    }
+
+    # 空格：根据模式决定确认段还是提交
+    action space_commit {
+        if (candidates.isEmpty) {
+            commit(buffer.rawContent); reset_engine()   # 无候选：提交原文
+        } else if (focusIndex != nil) {
+            confirmFocusedSegment(candidates[0])         # Tab 模式：确认聚焦段
+        } else {
+            finalizeAllPinyin(candidates[0])              # 正常模式：确认首选并提交
+            commit(buffer.all); reset_engine()
+        }
+    }
+
+    # 回车：提交拼音原文（不选候选）
+    action enter_commit {
+        commit(buffer.rawContent); reset_engine()
+    }
+
+    # 标点：有候选时确认首选+标点一起提交，无候选时提交原文+标点
+    action punctuation_commit {
+        if (candidates.notEmpty) { finalizeAllPinyin(candidates[0]) }
+        commit(buffer.all + fullWidth(fc)); reset_engine()
+    }
+
+    # Tab：在可编辑段之间移动焦点
+    action tab_navigate {
+        if (focusIndex == nil) { focusIndex = first_editable }
+        else { focusIndex = next_editable(backward?) }
+        updateCandidatesForFocus()
+    }
+
+    # 提交后自动回退临时模式
+    action auto_revert { if (mode == JA) mode = ZH }
 
     # --- 路径定义 ---
 
-    # 1. 模式切换
+    # 1. 模式切换：段落边界 + i 键
     mode_switch = i_key @toggle_mode;
 
-    # 2. 复合组合路径 (Composing)
-    # 输入字母进入当前拼音段
-    pinyin_seg  = alpha+ $append_pinyin;
+    # 2. 拼音输入 (Composing)
+    #    每个字母追加到 rawPinyin，触发 PinyinSplitter 切分 + 候选更新
+    #    切分结果：(完整音节[], remainder) → composingItems 重建
+    #    候选管线：精确匹配 → DP 组词 → 首段补充 → 前缀兜底 → 末段兜底
+    pinyin_input = alpha+ $append_pinyin;
 
-    # 3. 确定性暂存/组词路径 (Staging)
-    # 数字选词或以词定字，将拼音段转为确定的 text 项
-    stage_num   = pinyin_seg . num @finalize_item;
-    stage_char  = pinyin_seg . bracket @pick_char;
+    # 3. 选词/暂存 (Staging)
+    #    数字键：正常模式提交，Tab 模式确认段，首段补充确认首段
+    #    以词定字：[ 取首字，] 取尾字
+    stage_num    = (pinyin_input | buffer) . num @select_candidate;
+    stage_char   = (pinyin_input | buffer) . bracket @pick_char;
 
-    # 4. 最终提交路径 (Commitment)
-    # 空格或回车触发全局提交，并在临时模式下自动回退
-    commit_spc  = (pinyin_seg | buffer) . spc @commit_all %auto_revert;
-    commit_ret  = (pinyin_seg | buffer) . ret @commit_raw %auto_revert;
+    # 4. Tab 导航 (Focus)
+    #    进入/移动聚焦段，候选切换为当前聚焦段的候选
+    tab_nav      = (pinyin_input | buffer) . tab @tab_navigate;
 
-    # 5. 控制路径
-    reset       = (pinyin_seg | buffer) . esc @{ reset_engine() };
+    # 5. 提交 (Commitment)
+    #    空格：确认首选候选并提交（Tab 模式下仅确认段）
+    #    回车：提交拼音原文
+    #    标点：确认首选 + 全角标点一起提交
+    commit_spc   = (pinyin_input | buffer) . spc @space_commit %auto_revert;
+    commit_ret   = (pinyin_input | buffer) . ret @enter_commit %auto_revert;
+    commit_punc  = (pinyin_input | buffer) . punc @punctuation_commit %auto_revert;
+
+    # 6. 控制
+    reset        = (pinyin_input | buffer) . esc @{ reset_engine() };
+    backspace    = (pinyin_input | buffer) . bksp @backspace;
 
     # --- 主循环 ---
     main := (
-        mode_switch |
-        stage_num   |
-        stage_char  |
-        commit_spc  |
-        commit_ret  |
+        mode_switch  |
+        stage_num    |
+        stage_char   |
+        tab_nav      |
+        commit_spc   |
+        commit_ret   |
+        commit_punc  |
+        backspace    |
         reset
     )*;
 }%%
