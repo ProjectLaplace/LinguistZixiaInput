@@ -180,9 +180,11 @@ public class PinyinEngine {
         }
     }
 
-    /// v 命令触发标记：在 handleLetter 中设置，processInternal 中读取
-    private var profileRequested = false
-    private var buildTimeRequested = false
+    /// v 开头内置命令：名称 → 结果生成闭包
+    private static let vCommands: [String: () -> String] = [
+        "vprofile": { Profiler.summary() },
+        "vct": { "[build] \(PinyinEngine.buildTime)" },
+    ]
 
     /// 可执行文件修改时间，用于 vct 确认版本
     private static let buildTime: String = {
@@ -197,8 +199,6 @@ public class PinyinEngine {
 
     private func processInternal(_ event: EngineEvent) -> EngineState {
         var committedText: String? = nil
-        profileRequested = false
-        buildTimeRequested = false
 
         switch event {
         case .letter(let char):
@@ -230,15 +230,6 @@ public class PinyinEngine {
 
         case .punctuation(let char):
             committedText = handlePunctuation(char)
-        }
-
-        if profileRequested {
-            committedText = Profiler.summary()
-            resetAll()
-        }
-        if buildTimeRequested {
-            committedText = "[build] \(Self.buildTime)"
-            resetAll()
         }
 
         return EngineState(
@@ -274,16 +265,6 @@ public class PinyinEngine {
         focusIndex = nil
 
         rawPinyin += lowerChar
-
-        // v 开头特殊命令
-        if rawPinyin == "vprofile" {
-            profileRequested = true
-            return
-        }
-        if rawPinyin == "vct" {
-            buildTimeRequested = true
-            return
-        }
 
         rebuildFromRawPinyin()
     }
@@ -324,6 +305,13 @@ public class PinyinEngine {
     /// 处理空格键：确认候选并提交
     private func handleSpace() -> String? {
         guard !composingItems.isEmpty else { return nil }
+
+        // v 开头内置命令：空格确认后提交结果
+        if let vCommand = Self.vCommands[rawPinyin] {
+            let result = vCommand()
+            resetAll()
+            return result
+        }
 
         if let first = candidates.first {
             if focusIndex != nil {
