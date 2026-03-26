@@ -183,19 +183,8 @@ public class PinyinEngine {
     /// v 开头内置命令：名称 → 结果生成闭包
     private static let vCommands: [String: () -> String] = [
         "vprofile": { Profiler.summary() },
-        "vct": { "[build] \(PinyinEngine.buildTime)" },
+        "vct": { BuildInfo.version },
     ]
-
-    /// 可执行文件修改时间，用于 vct 确认版本
-    private static let buildTime: String = {
-        guard let execURL = Bundle.main.executableURL,
-            let attrs = try? FileManager.default.attributesOfItem(atPath: execURL.path),
-            let date = attrs[.modificationDate] as? Date
-        else { return "unknown" }
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return df.string(from: date)
-    }()
 
     private func processInternal(_ event: EngineEvent) -> EngineState {
         var committedText: String? = nil

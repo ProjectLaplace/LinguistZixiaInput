@@ -16,11 +16,17 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
+        .plugin(
+            name: "BuildInfoPlugin",
+            capability: .buildTool()),
         .target(
             name: "PinyinEngine",
             dependencies: [],
             resources: [
                 .process("Resources")
+            ],
+            plugins: [
+                .plugin(name: "BuildInfoPlugin"),
             ]),
         .executableTarget(
             name: "PinyinEval",
