@@ -39,6 +39,18 @@ class LaplaceInputController: IMKInputController {
     }
 
     override func deactivateServer(_ sender: Any!) {
+        // Hide UI elements to prevent CursorUIViewService window accumulation
+        Self.candidatesWindow.hide()
+        Self.indicator.hide()
+
+        // Reset Shift toggle state to prevent post-deactivate race condition
+        shiftPressedAlone = false
+
+        // Clear composing buffer so next activation starts clean
+        if !currentState.items.isEmpty {
+            currentState = engine.process(.esc)
+        }
+
         Profiler.measure("deactivateServer") {
             super.deactivateServer(sender)
         }
