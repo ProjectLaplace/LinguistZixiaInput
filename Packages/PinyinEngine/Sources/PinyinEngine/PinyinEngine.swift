@@ -270,13 +270,11 @@ public class PinyinEngine {
 
     /// 处理字母按键：涉及模式切换、拼音追加与自动切分
     private func handleLetter(_ char: Character) {
-        let lowerChar = char.lowercased()
-
         // 分段模式切换：在 Buffer 为空或处于段落边界（刚定完字）时，'i' 作为开关
         let isAtSegmentBoundary =
             composingItems.isEmpty
             || (!composingItems.last!.isEditable)
-        if isAtSegmentBoundary && lowerChar == "i" {
+        if isAtSegmentBoundary && char.lowercased() == "i" {
             currentMode = (currentMode == .pinyin) ? .transient : .pinyin
             return
         }
@@ -289,7 +287,8 @@ public class PinyinEngine {
         // Tab 聚焦模式下不追加字母，退出聚焦回到末尾
         focusIndex = nil
 
-        rawPinyin += lowerChar
+        // 保留原始大小写，拼音匹配时各处自行 lowercase
+        rawPinyin += String(char)
 
         rebuildFromRawPinyin()
     }
@@ -332,7 +331,7 @@ public class PinyinEngine {
         guard !composingItems.isEmpty else { return nil }
 
         // v 开头内置命令：空格确认后提交结果
-        if let vCommand = Self.vCommands[rawPinyin] {
+        if let vCommand = Self.vCommands[rawPinyin.lowercased()] {
             let result = vCommand()
             resetAll()
             return result
@@ -367,9 +366,9 @@ public class PinyinEngine {
         // 数字作为短语名的一部分（紫光惯例：sz_1、bq_2）。
         // 否则正常选词（如 dw_ 展开后用数字从候选列表选择）。
         if rawPinyin.contains("_") {
-            let extended = rawPinyin + String(index)
+            let extended = rawPinyin.lowercased() + String(index)
             if customPhrases?.hasPhrase(extended) == true {
-                rawPinyin = extended
+                rawPinyin += String(index)
                 rebuildFromRawPinyin()
                 return nil
             }
@@ -484,15 +483,26 @@ public class PinyinEngine {
             return
         }
 
-        // 先用 PinyinSplitter 做默认切分（用于显示）
+        // 先用 PinyinSplitter 做默认切分（用于候选匹配）
         let (defaultSyllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
 
+        // 显示用：按切分结果从 rawPinyin 中截取对应长度的原始片段，保留大小写
         if defaultSyllables.count > 1 || (defaultSyllables.count == 1 && !remainder.isEmpty) {
+            var offset = rawPinyin.startIndex
             for syllable in defaultSyllables {
-                composingItems.append(.pinyin(syllable))
+                // 跳过撇号（splitPartial 内部会去掉撇号再切分）
+                while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
+                    offset = rawPinyin.index(after: offset)
+                }
+                let end = rawPinyin.index(offset, offsetBy: syllable.count)
+                composingItems.append(.pinyin(String(rawPinyin[offset..<end])))
+                offset = end
             }
             if !remainder.isEmpty {
-                composingItems.append(.pinyin(remainder))
+                while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
+                    offset = rawPinyin.index(after: offset)
+                }
+                composingItems.append(.pinyin(String(rawPinyin[offset...])))
             }
         } else {
             composingItems.append(.pinyin(rawPinyin))
@@ -508,7 +518,8 @@ public class PinyinEngine {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
         // 0. 自定义短语：rawPinyin 完全匹配短语名时，短语候选置顶
-        let cleanPinyin = Self.normalizePinyin(rawPinyin.replacingOccurrences(of: "'", with: ""))
+        let cleanPinyin = Self.normalizePinyin(
+            rawPinyin.lowercased().replacingOccurrences(of: "'", with: ""))
         let customResults = customPhrases?.phrases(for: cleanPinyin) ?? []
 
         // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
@@ -696,7 +707,7 @@ public class PinyinEngine {
         guard !firstSegmentPinyin.isEmpty else { return }
 
         // 将首段确认为 .text，截掉 rawPinyin 中对应的首段拼音
-        let cleanRaw = rawPinyin.replacingOccurrences(of: "'", with: "")
+        let cleanRaw = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
         let normalizedRaw = Self.normalizePinyin(cleanRaw)
         let normalizedFirst = firstSegmentPinyin  // 已经 normalized
 
