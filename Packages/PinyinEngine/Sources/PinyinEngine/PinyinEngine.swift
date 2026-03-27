@@ -987,11 +987,14 @@ public class PinyinEngine {
                             // 顶层展开只取单字；递归内允许多字词（有短语上下文）
                             if !isTopLevel || top.word.count == 1 {
                                 // 单字匹配时，固顶字替代词库默认字
-                                if top.word.count == 1,
-                                    let pinned = pinnedChars?.pinnedChars(for: expandedPinyin),
-                                    let first = pinned.first
-                                {
-                                    top.word = first
+                                // 优先用原始声母查固顶字（如 h → "哈"），
+                                // 再 fallback 到展开后的完整音节
+                                if top.word.count == 1 {
+                                    let pinnedForInitial = pinnedChars?.pinnedChars(for: initial) ?? []
+                                    let pinnedForExpanded = pinnedChars?.pinnedChars(for: expandedPinyin) ?? []
+                                    if let first = pinnedForInitial.first ?? pinnedForExpanded.first {
+                                        top.word = first
+                                    }
                                 }
                                 callback(
                                     top.word, top.frequency, accSyllables + [initial], newPos)
