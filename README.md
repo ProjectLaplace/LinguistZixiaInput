@@ -1,8 +1,8 @@
-# LaplaceIME「拉普拉斯」拼音输入法
+# Linguist Zixia Input | 紫霞输入法
 
-确定性拼音输入法引擎及 macOS 原生客户端。候选词位置固定、行为可预测，追求肌肉记忆与心流体验。
+The deterministic pinyin input method engine and native macOS client. Fixed candidate positions, predictable behavior — designed for muscle memory and flow state. An attempt to recreate the unique experience of Ziguang Pinyin 2.3 from 25 years ago.
 
-当前处于 DemoApp 仿真验证阶段，不依赖 IMK，以独立 macOS 应用模拟完整输入法交互。
+确定性拼音输入法引擎及 macOS 原生客户端。候选字词位置固定、行为可预测，追求肌肉记忆与心流体验。重现 25 年前紫光拼音输入法 2.3 独特体验的尝试。
 
 ## 构建
 
@@ -38,8 +38,8 @@ make test
 # 4. 运行 DP 回归测试
 make eval
 
-# 5. 构建 DemoApp
-# 用 Xcode 打开 Apps/LaplaceIME-DemoApp/LaplaceIME-DemoApp.xcodeproj
+# 5. 构建并安装输入法
+make install
 ```
 
 ### DP 回归测试工具 (pinyin-eval)
@@ -66,7 +66,7 @@ benti|lun       本体论    本提论
 
 - `Packages/PinyinEngine` - 纯 Swift 输入法引擎，仅依赖 Foundation
 - `Packages/PinyinEngine/Sources/PinyinEval` - DP 回归测试 CLI 工具
-- `Apps/LaplaceIME-DemoApp` - SwiftUI macOS 仿真器
+- `Apps/LaplaceIME` - macOS IMK 输入法应用
 - `tools/build_dict_db.py` - 词库构建工具
 - `fixtures/` - 测试用小型 JSON 词库
 - `pinyin-strings.cases` - DP 回归测试案例

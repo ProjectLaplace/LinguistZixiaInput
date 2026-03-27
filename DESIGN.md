@@ -1,4 +1,4 @@
-# LaplaceIME 逻辑设计蓝图
+# Linguist Zixia Input | 紫霞输入法 — 逻辑设计蓝图
 
 ## 术语
 

@@ -1,4 +1,4 @@
-# LaplaceIME Project Context
+# Linguist Zixia Input | 紫霞输入法 — Project Context
 
 ## Build & Test
 

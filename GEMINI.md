@@ -1,4 +1,4 @@
-# 项目名称：「拉普拉斯」拼音输入法 (Project Laplace / LaplaceIME)
+# Linguist Zixia Input | 紫霞输入法 — 项目愿景与架构设计
 
 ## 1. 项目愿景与核心定义
 
