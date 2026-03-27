@@ -7,7 +7,6 @@
 - Engine: `cd Packages/PinyinEngine && swift build`
 - Tests: `cd Packages/PinyinEngine && swift test`
 - Format: `make format` (swift-format for Swift, prettier for Markdown)
-- DemoApp: Open `Apps/LaplaceIME-DemoApp/LaplaceIME-DemoApp.xcodeproj` in Xcode
 
 ## Architecture
 
@@ -15,7 +14,7 @@
   - `PinyinEngine` — Core state machine, processes `EngineEvent` → `EngineState`
   - `DictionaryStore` — SQLite-backed dictionary lookups
   - `PinyinSplitter` — Syllable splitting with DP (longest match + backtracking)
-- `Apps/LaplaceIME-DemoApp` — SwiftUI macOS simulator app
+- `Apps/LaplaceIME` — macOS IMK input method app
 - `tools/build_dict_db.py` — Dictionary build tool (rime-ice TSV / JSON → SQLite)
 - `fixtures/` — Small JSON dictionaries for test fixture generation
 
