@@ -211,10 +211,21 @@ class LaplaceInputController: IMKInputController {
     /// 构建带样式的 marked text
     private func buildMarkedText() -> NSAttributedString {
         let result = NSMutableAttributedString()
+        let items = currentState.items
 
-        for (index, item) in currentState.items.enumerated() {
+        for (index, item) in items.enumerated() {
+            // Insert space between adjacent pinyin/provisional segments
+            if index > 0 && item.isEditable && items[index - 1].isEditable {
+                result.append(
+                    NSAttributedString(
+                        string: " ",
+                        attributes: [
+                            .underlineStyle: NSUnderlineStyle.single.rawValue
+                        ]))
+            }
+
             let text: String
-            let attrs: [NSAttributedString.Key: Any]
+            var attrs: [NSAttributedString.Key: Any]
             let isFocused = index == currentState.focusedSegmentIndex
 
             switch item {
@@ -227,22 +238,26 @@ class LaplaceInputController: IMKInputController {
             case .provisional(_, let candidate):
                 text = candidate
                 attrs = [
-                    .underlineStyle: isFocused
-                        ? NSUnderlineStyle.thick.rawValue
-                        : NSUnderlineStyle.single.rawValue,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .foregroundColor: isFocused ? NSColor.systemBlue : NSColor.secondaryLabelColor,
                 ]
             case .pinyin(let s):
                 text = s
                 attrs = [
                     .underlineStyle: isFocused
-                        ? NSUnderlineStyle.thick.rawValue
+                        ? NSUnderlineStyle.single.rawValue
                         : NSUnderlineStyle.patternDash.rawValue | NSUnderlineStyle.single.rawValue,
                     .foregroundColor: isFocused ? NSColor.systemBlue : NSColor.textColor,
                 ]
             }
 
+            if isFocused {
+                result.append(NSAttributedString(string: "["))
+            }
             result.append(NSAttributedString(string: text, attributes: attrs))
+            if isFocused {
+                result.append(NSAttributedString(string: "]"))
+            }
         }
 
         return result

@@ -248,7 +248,7 @@ public class PinyinEngine {
             committedText = handleNumber(index)
 
         case .bracket(let pickLast):
-            handleBracket(pickLast: pickLast)
+            committedText = handleBracket(pickLast: pickLast)
 
         case .tab(let backward):
             handleTab(backward: backward)
@@ -339,9 +339,8 @@ public class PinyinEngine {
 
         if let first = candidates.first {
             if focusIndex != nil {
-                // Tab 聚焦模式：只确认聚焦段，不提交
-                confirmFocusedSegment(with: first)
-                return nil
+                // Tab 聚焦模式：确认聚焦段，可能自动提交
+                return confirmFocusedSegment(with: first)
             } else {
                 // 正常模式：用候选替换整个拼音串，然后提交全部
                 finalizeAllPinyin(with: first)
@@ -378,9 +377,8 @@ public class PinyinEngine {
         guard actualIndex >= 0 && actualIndex < candidates.count else { return nil }
 
         if focusIndex != nil {
-            // Tab 聚焦模式：确认聚焦段，不提交
-            confirmFocusedSegment(with: candidates[actualIndex])
-            return nil
+            // Tab 聚焦模式：确认聚焦段，可能自动提交
+            return confirmFocusedSegment(with: candidates[actualIndex])
         } else if firstSegmentCandidateStart > 0 && actualIndex >= firstSegmentCandidateStart {
             // 首段补充候选：只确认首段，剩余拼音继续组词
             confirmFirstSegment(with: candidates[actualIndex])
@@ -397,15 +395,16 @@ public class PinyinEngine {
     // MARK: - 以词定字
 
     /// 处理以词定字
-    private func handleBracket(pickLast: Bool) {
+    private func handleBracket(pickLast: Bool) -> String? {
         guard let first = candidates.first,
             let char = pickCharacter(from: first, pickLast: pickLast)
-        else { return }
+        else { return nil }
 
         if focusIndex != nil {
-            confirmFocusedSegment(with: char)
+            return confirmFocusedSegment(with: char)
         } else {
             finalizeAllPinyin(with: char)
+            return nil
         }
     }
 
@@ -417,13 +416,15 @@ public class PinyinEngine {
         guard !editableIndices.isEmpty else { return }
 
         if let current = focusIndex {
-            // 已在聚焦模式，移动焦点
+            // 已在聚焦模式，移动焦点（到头则停止）
             if let pos = editableIndices.firstIndex(of: current) {
-                let next =
-                    backward
-                    ? (pos - 1 + editableIndices.count) % editableIndices.count
-                    : (pos + 1) % editableIndices.count
-                focusIndex = editableIndices[next]
+                if backward {
+                    guard pos > 0 else { return }
+                    focusIndex = editableIndices[pos - 1]
+                } else {
+                    guard pos < editableIndices.count - 1 else { return }
+                    focusIndex = editableIndices[pos + 1]
+                }
             }
         } else {
             // 进入聚焦模式：聚焦目标段，不修改其他段
@@ -681,24 +682,28 @@ public class PinyinEngine {
         candidates = []
     }
 
-    /// 确认 Tab 聚焦段的候选，然后移动焦点或退出聚焦
-    private func confirmFocusedSegment(with text: String) {
-        guard let idx = focusIndex, idx < composingItems.count else { return }
+    /// 确认 Tab 聚焦段的候选，然后移动焦点或自动提交
+    /// 返回提交文本（所有段已确认时），nil 表示继续编辑
+    @discardableResult
+    private func confirmFocusedSegment(with text: String) -> String? {
+        guard let idx = focusIndex, idx < composingItems.count else { return nil }
 
         composingItems[idx] = .text(text)
 
         // 从 rawPinyin 中移除已确认段的拼音
         rebuildRawPinyinFromItems()
 
-        // 如果没有更多可编辑段，退出聚焦模式
+        // 如果没有更多可编辑段，自动提交
         let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
         if editableIndices.isEmpty {
-            focusIndex = nil
-            candidates = []
+            let result = composingItems.map { $0.content }.joined()
+            resetAll()
+            return result
         } else {
             // 移动到下一个可编辑段
             focusIndex = editableIndices.first { $0 > idx } ?? editableIndices.first
             updateCandidatesForFocus()
+            return nil
         }
     }
 
@@ -990,9 +995,12 @@ public class PinyinEngine {
                                 // 优先用原始声母查固顶字（如 h → "哈"），
                                 // 再 fallback 到展开后的完整音节
                                 if top.word.count == 1 {
-                                    let pinnedForInitial = pinnedChars?.pinnedChars(for: initial) ?? []
-                                    let pinnedForExpanded = pinnedChars?.pinnedChars(for: expandedPinyin) ?? []
-                                    if let first = pinnedForInitial.first ?? pinnedForExpanded.first {
+                                    let pinnedForInitial =
+                                        pinnedChars?.pinnedChars(for: initial) ?? []
+                                    let pinnedForExpanded =
+                                        pinnedChars?.pinnedChars(for: expandedPinyin) ?? []
+                                    if let first = pinnedForInitial.first ?? pinnedForExpanded.first
+                                    {
                                         top.word = first
                                     }
                                 }
