@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Clone rime-ice
+        run: git clone --depth 1 https://github.com/iDvel/rime-ice.git
+
+      - name: Build dictionary
+        run: make dict-release
+
+      - name: Build release
+        run: make release
+
+      - name: Package
+        run: make dist
+
+      - name: Get version
+        id: version
+        run: echo "version=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.version }}
+          files: build/LaplaceIME-*.zip
+          body: |
+            ## Install
+
+            ```bash
+            # Unzip and remove quarantine attribute
+            unzip LaplaceIME-${{ steps.version.outputs.version }}.zip
+            xattr -cr LaplaceIME.app
+
+            # Install to Input Methods
+            cp -R LaplaceIME.app ~/Library/Input\ Methods/
+            ```
+
+            Then open **System Settings → Keyboard → Input Sources → Edit…**, add **Linguist Zixia Input**, and log out and log back in.
+          draft: false
+          prerelease: false

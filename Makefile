@@ -5,8 +5,12 @@ BUILD_DIR = $(CURDIR)/build
 APP_NAME = Linguist Zixia Input.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(V),,-quiet)
+VERSION = $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.1.0)
+VERSION_NUMBER = $(VERSION:v%=%)
+ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
+DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install clean test dict format eval query list-user-words reset-user-words
+.PHONY: build install clean test dict dict-release release dist format eval query list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -21,6 +25,25 @@ install: build
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+$(DICT_DB):
+	python3 tools/build_dict_db.py preset default
+
+dict-release:
+	rm -f "$(DICT_DB)"
+	python3 tools/build_dict_db.py preset default
+
+release: $(DICT_DB)
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
+		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) \
+		MARKETING_VERSION=$(VERSION_NUMBER) \
+		build
+
+dist: release
+	ditto -c -k --keepParent \
+		"$(BUILD_DIR)/Build/Products/Release/$(APP_NAME)" \
+		"$(BUILD_DIR)/$(ZIP_NAME)"
+	@echo "Archive created: $(BUILD_DIR)/$(ZIP_NAME)"
 
 test:
 	cd Packages/PinyinEngine && swift test
