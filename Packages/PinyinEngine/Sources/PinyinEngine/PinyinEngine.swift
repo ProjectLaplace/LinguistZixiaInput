@@ -431,8 +431,12 @@ public class PinyinEngine {
                 }
             }
         } else {
-            // 进入聚焦模式：聚焦目标段，不修改其他段
-            focusIndex = backward ? editableIndices.last! : editableIndices.first!
+            // 进入聚焦模式：backward 跳过末尾段（它已是活跃输入段），聚焦倒数第二个
+            if backward && editableIndices.count >= 2 {
+                focusIndex = editableIndices[editableIndices.count - 2]
+            } else {
+                focusIndex = backward ? editableIndices.last! : editableIndices.first!
+            }
         }
 
         updateCandidatesForFocus()

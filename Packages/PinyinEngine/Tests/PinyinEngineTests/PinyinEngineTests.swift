@@ -396,8 +396,8 @@ final class PinyinEngineTests: XCTestCase {
     func testShiftTabNavigatesBackward() {
         type("shijian")
         let state = shiftTab()
-        // Should focus on the last editable segment
-        XCTAssertEqual(state.focusedSegmentIndex, 1)
+        // Should skip the last segment (active input) and focus the second-to-last
+        XCTAssertEqual(state.focusedSegmentIndex, 0)
     }
 
     func testTabNavigationNotStuckAfterEntry() {
