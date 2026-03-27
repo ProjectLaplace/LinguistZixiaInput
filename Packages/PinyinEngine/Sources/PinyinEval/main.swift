@@ -153,8 +153,8 @@ func evaluateSingleChars(
 
 // MARK: - Evaluation
 
-func evaluate(_ evalCase: EvalCase, store: DictionaryStore) -> Bool {
-    let dpResult = PinyinEngine.compose(evalCase.rawPinyin, store: store)
+func evaluate(_ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?) -> Bool {
+    let dpResult = PinyinEngine.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
     let dpText = dpResult?.text ?? ""
 
     // 判定
@@ -199,28 +199,40 @@ func printDetail(evalCase: EvalCase, dpResult: DPPathResult?, store: DictionaryS
 
 // MARK: - Main
 
+/// 从当前工作目录或可执行文件位置往上查找 .git 目录，返回项目根路径。
+func findProjectRoot() -> String? {
+    // 优先从 CWD 往上找
+    var dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    for _ in 0..<10 {
+        if FileManager.default.fileExists(atPath: dir.appendingPathComponent(".git").path) {
+            return dir.path
+        }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { break }
+        dir = parent
+    }
+    // 从可执行文件位置往上找
+    dir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+    for _ in 0..<10 {
+        if FileManager.default.fileExists(atPath: dir.appendingPathComponent(".git").path) {
+            return dir.path
+        }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { break }
+        dir = parent
+    }
+    return nil
+}
+
 func findDictionary() -> String {
-    // 1. 从环境变量
     if let envPath = ProcessInfo.processInfo.environment["PINYIN_DICT_PATH"] {
         return envPath
     }
 
-    // 2. 相对于可执行文件的常见位置
-    let execDir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
-
-    // 3. 相对于项目根目录
-    let candidates = [
-        execDir.appendingPathComponent("../../../Sources/PinyinEngine/Resources/zh_dict.db").path,
-        execDir.appendingPathComponent("zh_dict.db").path,
-        // 从 Package 目录运行时
-        "Sources/PinyinEngine/Resources/zh_dict.db",
-        "Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db",
-    ]
-
-    for path in candidates {
-        let resolved = (path as NSString).standardizingPath
-        if FileManager.default.fileExists(atPath: resolved) {
-            return resolved
+    if let root = findProjectRoot() {
+        let path = "\(root)/Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db"
+        if FileManager.default.fileExists(atPath: path) {
+            return path
         }
     }
 
@@ -228,6 +240,21 @@ func findDictionary() -> String {
         "\(Color.red)Error: cannot find zh_dict.db. Set PINYIN_DICT_PATH or run from project root.\(Color.reset)\n",
         stderr)
     exit(1)
+}
+
+func findPinnedChars() -> PinnedCharStore? {
+    if let envPath = ProcessInfo.processInfo.environment["PINYIN_PINNED_PATH"] {
+        return PinnedCharStore(path: envPath)
+    }
+
+    if let root = findProjectRoot() {
+        let path = "\(root)/fixtures/pinned_chars.toml"
+        if FileManager.default.fileExists(atPath: path) {
+            return PinnedCharStore(path: path)
+        }
+    }
+
+    return nil
 }
 
 let args = CommandLine.arguments
@@ -271,6 +298,8 @@ guard let store = DictionaryStore(path: resolvedDictPath) else {
     exit(1)
 }
 
+let pinnedChars = findPinnedChars()
+
 // -q 模式：查询词库
 if queryMode {
     let pinyin = input.lowercased()
@@ -297,7 +326,7 @@ if queryMode {
     }
 
     // DP 结果
-    if let dpResult = PinyinEngine.compose(pinyin, store: store) {
+    if let dpResult = PinyinEngine.compose(pinyin, store: store, pinnedChars: pinnedChars) {
         print(
             "\(Color.bold)dp:\(Color.reset)     \(dpResult.text)  \(Color.dim)\(formatPath(dpResult))\(Color.reset)"
         )
@@ -333,7 +362,7 @@ if FileManager.default.fileExists(atPath: input) {
 var passed = 0
 var failed = 0
 for c in cases {
-    if evaluate(c, store: store) {
+    if evaluate(c, store: store, pinnedChars: pinnedChars) {
         passed += 1
     } else {
         failed += 1
