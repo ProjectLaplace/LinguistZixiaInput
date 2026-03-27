@@ -4,6 +4,8 @@ import Foundation
 public struct DPPathResult {
     /// 逐词拆分：每个词及其频率
     public let segments: [(word: String, pinyin: String, frequency: Int)]
+    /// 原始输入的切分片段（保留裸声母等原始形式，与输入字符一一对应）
+    public let syllables: [String]
     /// 组合文本（所有 word 拼接）
     public let text: String
     /// 多字词平均 log(freq)
@@ -19,6 +21,7 @@ public struct DPPathResult {
 
     public init(
         segments: [(word: String, pinyin: String, frequency: Int)],
+        syllables: [String] = [],
         text: String,
         avgMultiCharScore: Double,
         coverage: Double,
@@ -27,6 +30,7 @@ public struct DPPathResult {
         totalScore: Double
     ) {
         self.segments = segments
+        self.syllables = syllables
         self.text = text
         self.avgMultiCharScore = avgMultiCharScore
         self.coverage = coverage
@@ -487,11 +491,18 @@ public class PinyinEngine {
         // 先用 PinyinSplitter 做默认切分（用于候选匹配）
         let (defaultSyllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
 
-        // 显示用：按切分结果从 rawPinyin 中截取对应长度的原始片段，保留大小写
-        if defaultSyllables.count > 1 || (defaultSyllables.count == 1 && !remainder.isEmpty) {
+        // 尝试用 DP 切分来构建 composingItems（DP 的切分更准确，考虑了词典）
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+        let cleanPinyin = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
+        let dpResult = store.flatMap {
+            Self.compose(cleanPinyin, store: $0, pinnedChars: pinnedChars)
+        }
+
+        if let dp = dpResult {
+            // DP 成功：用 DP syllables 的长度从 rawPinyin 截取原始片段
+            // syllables 保留裸声母原始形式（如 "j" 而非展开后的 "ji"），与输入字符一一对应
             var offset = rawPinyin.startIndex
-            for syllable in defaultSyllables {
-                // 跳过撇号（splitPartial 内部会去掉撇号再切分）
+            for syllable in dp.syllables {
                 while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
                     offset = rawPinyin.index(after: offset)
                 }
@@ -499,14 +510,38 @@ public class PinyinEngine {
                 composingItems.append(.pinyin(String(rawPinyin[offset..<end])))
                 offset = end
             }
-            if !remainder.isEmpty {
+            // DP 未覆盖的尾部（理论上不应发生，但兜底）
+            if offset < rawPinyin.endIndex {
                 while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
                     offset = rawPinyin.index(after: offset)
                 }
-                composingItems.append(.pinyin(String(rawPinyin[offset...])))
+                if offset < rawPinyin.endIndex {
+                    composingItems.append(.pinyin(String(rawPinyin[offset...])))
+                }
             }
         } else {
-            composingItems.append(.pinyin(rawPinyin))
+            // DP 无结果：fallback 到 splitPartial
+            if defaultSyllables.count > 1
+                || (defaultSyllables.count == 1 && !remainder.isEmpty)
+            {
+                var offset = rawPinyin.startIndex
+                for syllable in defaultSyllables {
+                    while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
+                        offset = rawPinyin.index(after: offset)
+                    }
+                    let end = rawPinyin.index(offset, offsetBy: syllable.count)
+                    composingItems.append(.pinyin(String(rawPinyin[offset..<end])))
+                    offset = end
+                }
+                if !remainder.isEmpty {
+                    while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
+                        offset = rawPinyin.index(after: offset)
+                    }
+                    composingItems.append(.pinyin(String(rawPinyin[offset...])))
+                }
+            } else {
+                composingItems.append(.pinyin(rawPinyin))
+            }
         }
 
         // 候选词：优先整串匹配
@@ -897,6 +932,7 @@ public class PinyinEngine {
             ? Double(best.multiCharSylCount) / Double(best.sylCount) : 0
         return DPPathResult(
             segments: best.segments,
+            syllables: best.syllables,
             text: best.segments.map { $0.word }.joined(),
             avgMultiCharScore: avg,
             coverage: cov,
