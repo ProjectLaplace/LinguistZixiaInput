@@ -77,10 +77,84 @@ func formatScore(_ result: DPPathResult) -> String {
         result.wordCount, result.totalScore)
 }
 
+// MARK: - Split Evaluation
+
+/// 按指定切分（如 ["jingque", "biaoyi"]）查词库，返回该路径的评分。
+func evaluateSplit(
+    _ syllableGroups: [String], store: DictionaryStore
+) -> DPPathResult? {
+    var segments: [(word: String, pinyin: String, frequency: Int)] = []
+    var multiCharScore: Double = 0
+    var multiCharCount = 0
+    var multiCharSylCount = 0
+    var totalScore: Double = 0
+    var wordCount = 0
+    var sylCount = 0
+
+    for group in syllableGroups {
+        let normalized = PinyinEngine.normalizePinyin(group)
+        guard let top = store.topCandidate(for: normalized) else {
+            let singleResults = evaluateSingleChars(normalized, store: store)
+            if singleResults.isEmpty { return nil }
+            for sr in singleResults {
+                segments.append(sr)
+                let ws = log(Double(max(sr.frequency, 1)))
+                totalScore += ws
+                wordCount += 1
+                sylCount += 1
+            }
+            continue
+        }
+
+        let frequency = top.frequency
+        let word = top.word
+        let wordScore = log(Double(max(frequency, 1)))
+        let isMultiChar = word.count >= 2 && frequency >= 10000
+
+        segments.append((word, normalized, frequency))
+        multiCharScore += isMultiChar ? wordScore : 0
+        multiCharCount += isMultiChar ? 1 : 0
+        let trueSylCount = word.count
+        multiCharSylCount += isMultiChar ? trueSylCount : 0
+        totalScore += wordScore
+        let wcc = (!isMultiChar && word.count >= 2) ? word.count : 1
+        wordCount += wcc
+        sylCount += trueSylCount
+    }
+
+    let avg = multiCharCount > 0 ? multiCharScore / Double(multiCharCount) : -1
+    let cov = sylCount > 0 ? Double(multiCharSylCount) / Double(sylCount) : 0
+    let composite = avg + 4.0 * cov
+
+    return DPPathResult(
+        segments: segments,
+        text: segments.map { $0.word }.joined(),
+        avgMultiCharScore: avg,
+        coverage: cov,
+        compositeScore: composite,
+        wordCount: wordCount,
+        totalScore: totalScore)
+}
+
+func evaluateSingleChars(
+    _ pinyin: String, store: DictionaryStore
+) -> [(word: String, pinyin: String, frequency: Int)] {
+    guard let syllables = PinyinSplitter.split(pinyin) else { return [] }
+    var results: [(word: String, pinyin: String, frequency: Int)] = []
+    for syl in syllables {
+        if let top = store.topCandidate(for: syl) {
+            results.append((top.word, syl, top.frequency))
+        } else {
+            results.append(("?", syl, 0))
+        }
+    }
+    return results
+}
+
 // MARK: - Evaluation
 
 func evaluate(_ evalCase: EvalCase, store: DictionaryStore) -> Bool {
-    let dpResult = DPDiagnostics.evaluateDP(evalCase.rawPinyin, store: store)
+    let dpResult = PinyinEngine.compose(evalCase.rawPinyin, store: store)
     let dpText = dpResult?.text ?? ""
 
     // 判定
@@ -115,7 +189,7 @@ func printDetail(evalCase: EvalCase, dpResult: DPPathResult?, store: DictionaryS
 
     // 按指定切分查词库的评分
     let splitLabel = evalCase.expectedSplit.joined(separator: "|")
-    if let splitResult = DPDiagnostics.evaluateSplit(evalCase.expectedSplit, store: store) {
+    if let splitResult = evaluateSplit(evalCase.expectedSplit, store: store) {
         print("  \(Color.green)split:\(Color.reset)    \(splitLabel) → \(formatPath(splitResult))")
         print("           \(formatScore(splitResult))")
     } else {
@@ -223,7 +297,7 @@ if queryMode {
     }
 
     // DP 结果
-    if let dpResult = DPDiagnostics.evaluateDP(pinyin, store: store) {
+    if let dpResult = PinyinEngine.compose(pinyin, store: store) {
         print(
             "\(Color.bold)dp:\(Color.reset)     \(dpResult.text)  \(Color.dim)\(formatPath(dpResult))\(Color.reset)"
         )

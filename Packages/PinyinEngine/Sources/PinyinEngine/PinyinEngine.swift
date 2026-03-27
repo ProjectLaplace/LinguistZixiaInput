@@ -1,5 +1,41 @@
 import Foundation
 
+/// DP 路径诊断结果：一条切分路径的完整评分明细。
+public struct DPPathResult {
+    /// 逐词拆分：每个词及其频率
+    public let segments: [(word: String, pinyin: String, frequency: Int)]
+    /// 组合文本（所有 word 拼接）
+    public let text: String
+    /// 多字词平均 log(freq)
+    public let avgMultiCharScore: Double
+    /// 多字词覆盖率（被多字词覆盖的音节数 / 总音节数）
+    public let coverage: Double
+    /// compositeScore = avgMulti + 4 * coverage
+    public let compositeScore: Double
+    /// 总词数
+    public let wordCount: Int
+    /// 总 log(freq) 之和
+    public let totalScore: Double
+
+    public init(
+        segments: [(word: String, pinyin: String, frequency: Int)],
+        text: String,
+        avgMultiCharScore: Double,
+        coverage: Double,
+        compositeScore: Double,
+        wordCount: Int,
+        totalScore: Double
+    ) {
+        self.segments = segments
+        self.text = text
+        self.avgMultiCharScore = avgMultiCharScore
+        self.coverage = coverage
+        self.compositeScore = compositeScore
+        self.wordCount = wordCount
+        self.totalScore = totalScore
+    }
+}
+
 /// 组合项：可以是确定的文本、待处理的拼音、或自动匹配的预览。
 /// 复合缓冲区架构的核心，支持「以词定字」后的持续组词。
 public enum ComposingItem: Equatable {
@@ -508,7 +544,7 @@ public class PinyinEngine {
         let shouldRunDP =
             result.isEmpty && defaultSyllables.count > 1
             && (remainder.isEmpty || remainderIsBareInitial)
-        var dpResult: (text: String, syllables: [String], words: [String])? = nil
+        var dpResult: DPPathResult? = nil
         if shouldRunDP {
             dpResult = unifiedCompose(cleanPinyin, store: store)
             if let composed = dpResult {
@@ -523,12 +559,9 @@ public class PinyinEngine {
         if (remainder.isEmpty || remainderIsBareInitial) && defaultSyllables.count > 1 {
             // 确定首段拼音：优先用 DP 结果的第一个词对应的音节
             let firstPinyin: String
-            if let dp = dpResult, !dp.words.isEmpty {
-                // DP 第一个词可能跨多个音节，取对应的音节拼接
-                let firstWordCharCount = dp.words[0].count
-                // 从 syllables 中取前 N 个音节（N = 第一个词的字数）
-                let firstSyllables = Array(dp.syllables.prefix(firstWordCharCount))
-                firstPinyin = firstSyllables.joined()
+            if let dp = dpResult, !dp.segments.isEmpty {
+                // DP 第一个 segment 的 pinyin 就是首词的完整拼音
+                firstPinyin = dp.segments[0].pinyin
             } else {
                 // 没有 DP 结果，用 PinyinSplitter 的第一个音节
                 firstPinyin = Self.normalizePinyin(defaultSyllables[0])
@@ -723,7 +756,7 @@ public class PinyinEngine {
     }
 
     /// 将拼音中 u 作为 ü 的替代写法规范化为 v（仅限 l/n 声母后的 ue→ve）
-    private static func normalizePinyin(_ pinyin: String) -> String {
+    public static func normalizePinyin(_ pinyin: String) -> String {
         var result = pinyin
         result = result.replacingOccurrences(of: "lue", with: "lve")
         result = result.replacingOccurrences(of: "nue", with: "nve")
@@ -740,29 +773,15 @@ public class PinyinEngine {
     ///   两阶段法: split→["jian","cha","yi","xian","e"] → 检查仪限额
     ///   统一 DP:  检查(580k)+一下(501k)+呢(高频) >> 检查仪(4k)+限额(138k)
     ///
-    /// - Parameters:
-    ///   - input: 原始拼音字符串（不含撇号，已小写）
-    ///   - store: 词库
-    /// - Returns: (组词结果, 音节切分, 逐词拆分) 或 nil（无法完全覆盖）
-    private func unifiedCompose(_ input: String, store: DictionaryStore?)
-        -> (text: String, syllables: [String], words: [String])?
-    {
-        let _ucStart = CFAbsoluteTimeGetCurrent()
-        defer {
-            let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
-            Profiler.record(
-                "unifiedCompose", elapsed: _ucElapsed, detail: "unifiedCompose(\(input))")
-            if _ucElapsed >= Profiler.thresholdMs {
-                Profiler.event("unifiedCompose(\(input)): \(String(format: "%.1f", _ucElapsed))ms")
-            }
-        }
-        guard let store = store, !input.isEmpty else { return nil }
-
+    /// DP 组词：对拼音串执行 DP 切分并返回最优路径的评分明细。
+    /// 这是引擎和 eval 工具共用的唯一 DP 实现。
+    public static func compose(_ input: String, store: DictionaryStore) -> DPPathResult? {
         let chars = Array(input)
         let n = chars.count
+        guard n > 0 else { return nil }
 
         struct DPState {
-            var words: [String]
+            var segments: [(word: String, pinyin: String, frequency: Int)]
             var syllables: [String]
             var multiCharScore: Double  // 多字词 log(freq) 之和
             var multiCharCount: Int  // 多字词数量（用于计算平均分）
@@ -804,7 +823,7 @@ public class PinyinEngine {
 
         var dp: [DPState?] = Array(repeating: nil, count: n + 1)
         dp[n] = DPState(
-            words: [], syllables: [], multiCharScore: 0, multiCharCount: 0,
+            segments: [], syllables: [], multiCharScore: 0, multiCharCount: 0,
             multiCharSylCount: 0, totalScore: 0, wordCount: 0, sylCount: 0, splitCount: 0)
 
         // 从右往左填 DP
@@ -829,8 +848,9 @@ public class PinyinEngine {
                 let wordCount = wordCountContribution + rest.wordCount
                 let totalSyls = trueSylCount + rest.sylCount
 
+                let pinyinStr = syllables.joined()
                 let candidate = DPState(
-                    words: [word] + rest.words,
+                    segments: [(word, pinyinStr, frequency)] + rest.segments,
                     syllables: syllables + rest.syllables,
                     multiCharScore: multiCharScore,
                     multiCharCount: multiCharCount,
@@ -851,14 +871,43 @@ public class PinyinEngine {
         }
 
         guard let best = dp[0] else { return nil }
-        return (best.words.joined(), best.syllables, best.words)
+        let avg =
+            best.multiCharCount > 0
+            ? best.multiCharScore / Double(best.multiCharCount) : -1
+        let cov =
+            best.sylCount > 0
+            ? Double(best.multiCharSylCount) / Double(best.sylCount) : 0
+        return DPPathResult(
+            segments: best.segments,
+            text: best.segments.map { $0.word }.joined(),
+            avgMultiCharScore: avg,
+            coverage: cov,
+            compositeScore: avg + 4.0 * cov,
+            wordCount: best.wordCount,
+            totalScore: best.totalScore)
+    }
+
+    private func unifiedCompose(_ input: String, store: DictionaryStore?)
+        -> DPPathResult?
+    {
+        let _ucStart = CFAbsoluteTimeGetCurrent()
+        defer {
+            let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
+            Profiler.record(
+                "unifiedCompose", elapsed: _ucElapsed, detail: "unifiedCompose(\(input))")
+            if _ucElapsed >= Profiler.thresholdMs {
+                Profiler.event("unifiedCompose(\(input)): \(String(format: "%.1f", _ucElapsed))ms")
+            }
+        }
+        guard let store = store, !input.isEmpty else { return nil }
+        return Self.compose(input, store: store)
     }
 
     /// 枚举从 pos 开始的所有合法短语：用 DFS 尝试连续音节组合并查词库。
     /// 每找到一个词库匹配就回调 (word, frequency, syllables, endPos)。
     /// 支持裸声母展开：当位置上的字符是合法声母但不构成完整音节时，
     /// 展开为该声母的所有合法音节，查词库取 top 单字参与评分。
-    private func enumeratePhrases(
+    private static func enumeratePhrases(
         chars: [Character], from startPos: Int, store: DictionaryStore,
         callback: (String, Int, [String], Int) -> Void
     ) {
