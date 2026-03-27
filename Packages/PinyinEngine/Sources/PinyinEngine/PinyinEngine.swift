@@ -786,7 +786,9 @@ public class PinyinEngine {
     ///
     /// DP 组词：对拼音串执行 DP 切分并返回最优路径的评分明细。
     /// 这是引擎和 eval 工具共用的唯一 DP 实现。
-    public static func compose(_ input: String, store: DictionaryStore) -> DPPathResult? {
+    public static func compose(
+        _ input: String, store: DictionaryStore, pinnedChars: PinnedCharStore? = nil
+    ) -> DPPathResult? {
         let chars = Array(input)
         let n = chars.count
         guard n > 0 else { return nil }
@@ -839,7 +841,7 @@ public class PinyinEngine {
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
-            enumeratePhrases(chars: chars, from: pos, store: store) {
+            enumeratePhrases(chars: chars, from: pos, store: store, pinnedChars: pinnedChars) {
                 word, frequency, syllables, endPos in
                 guard let rest = dp[endPos] else { return }
 
@@ -911,7 +913,7 @@ public class PinyinEngine {
             }
         }
         guard let store = store, !input.isEmpty else { return nil }
-        return Self.compose(input, store: store)
+        return Self.compose(input, store: store, pinnedChars: pinnedChars)
     }
 
     /// 枚举从 pos 开始的所有合法短语：用 DFS 尝试连续音节组合并查词库。
@@ -920,6 +922,7 @@ public class PinyinEngine {
     /// 展开为该声母的所有合法音节，查词库取 top 单字参与评分。
     private static func enumeratePhrases(
         chars: [Character], from startPos: Int, store: DictionaryStore,
+        pinnedChars: PinnedCharStore? = nil,
         callback: (String, Int, [String], Int) -> Void
     ) {
         let n = chars.count
@@ -946,7 +949,14 @@ public class PinyinEngine {
                 let newPos = curPos + sylLen
 
                 // 查词库，获取词和词频
-                if let top = store.topCandidate(for: newPinyin) {
+                if var top = store.topCandidate(for: newPinyin) {
+                    // 单字匹配时，固顶字替代词库默认字
+                    if top.word.count == 1,
+                        let pinned = pinnedChars?.pinnedChars(for: newPinyin),
+                        let first = pinned.first
+                    {
+                        top.word = first
+                    }
                     callback(top.word, top.frequency, newSyllables, newPos)
                 }
 
@@ -973,9 +983,16 @@ public class PinyinEngine {
                     let newPos = curPos + initialLen
                     for expanded in expansions {
                         let expandedPinyin = accPinyin + expanded
-                        if let top = store.topCandidate(for: expandedPinyin) {
+                        if var top = store.topCandidate(for: expandedPinyin) {
                             // 顶层展开只取单字；递归内允许多字词（有短语上下文）
                             if !isTopLevel || top.word.count == 1 {
+                                // 单字匹配时，固顶字替代词库默认字
+                                if top.word.count == 1,
+                                    let pinned = pinnedChars?.pinnedChars(for: expandedPinyin),
+                                    let first = pinned.first
+                                {
+                                    top.word = first
+                                }
                                 callback(
                                     top.word, top.frequency, accSyllables + [initial], newPos)
                             }
