@@ -2,7 +2,7 @@ PROJECT = Apps/LaplaceIME/LaplaceIME.xcodeproj
 SCHEME = LaplaceIME
 CONFIG = Debug
 BUILD_DIR = $(CURDIR)/build
-APP_NAME = LaplaceIME.app
+APP_NAME = Linguist Zixia Input.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(Q),-quiet)
 
@@ -13,7 +13,7 @@ build:
 		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) build
 
 install: build
-	-killall LaplaceIME 2>/dev/null
+	-killall "Linguist Zixia Input" 2>/dev/null
 	@sleep 0.5
 	rm -rf "$(INSTALL_DIR)/$(APP_NAME)"
 	cp -R "$(BUILD_DIR)/Build/Products/$(CONFIG)/$(APP_NAME)" "$(INSTALL_DIR)/"

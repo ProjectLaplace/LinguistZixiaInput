@@ -1,2 +1,3 @@
-/* Input source display names */
-"org.1b2c.inputmethod.LaplaceIME.Hans" = "拉普拉斯";
+/* Localized display names */
+CFBundleDisplayName = "确定性输入";
+"org.1b2c.inputmethod.LaplaceIME.Hans" = "紫霞输入法";

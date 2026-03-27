@@ -12,6 +12,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Linguist Zixia Input</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -53,6 +55,8 @@
 				<true/>
 				<key>tsInputModeIsVisibleKey</key>
 				<true/>
+				<key>TISIntputModeLocalizedNameKey</key>
+				<string>Linguist Zixia Input</string>
 			</dict>
 		</dict>
 		<key>tsVisibleInputModeOrderedArrayKey</key>
