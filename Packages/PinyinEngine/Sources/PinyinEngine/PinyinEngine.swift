@@ -224,7 +224,75 @@ public class PinyinEngine {
     private static let vCommands: [String: () -> String] = [
         "vprofile": { Profiler.summary() },
         "vct": { BuildInfo.version },
+        "vver": { BuildInfo.version },
+        "vdate": {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd"
+            return f.string(from: Date())
+        },
+        "vtime": {
+            let f = DateFormatter()
+            f.dateFormat = "HH:mm"
+            return f.string(from: Date())
+        },
+        "vdatetime": { vCommandDateTime() },
+        "vdt": { vCommandDateTime() },
+        "vcdate": {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "zh_CN")
+            f.dateFormat = "yyyy年M月d日"
+            return f.string(from: Date())
+        },
+        "vweek": {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "zh_CN")
+            f.dateFormat = "EEEE"
+            return f.string(from: Date())
+        },
+        "vuuid": { vCommandUUIDv7() },
+        "vts": {
+            String(Int(Date().timeIntervalSince1970))
+        },
+        "vpwd": { vCommandPassword(length: 16) },
+        "vpin": {
+            (0..<6).map { _ in String(Int.random(in: 0...9)) }.joined()
+        },
     ]
+
+    private static func vCommandDateTime() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f.string(from: Date())
+    }
+
+    private static func vCommandUUIDv7() -> String {
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        var bytes = [UInt8](repeating: 0, count: 16)
+        // 48-bit timestamp (ms)
+        bytes[0] = UInt8((now >> 40) & 0xFF)
+        bytes[1] = UInt8((now >> 32) & 0xFF)
+        bytes[2] = UInt8((now >> 24) & 0xFF)
+        bytes[3] = UInt8((now >> 16) & 0xFF)
+        bytes[4] = UInt8((now >> 8) & 0xFF)
+        bytes[5] = UInt8(now & 0xFF)
+        // Random bytes for the rest
+        for i in 6..<16 {
+            bytes[i] = UInt8.random(in: 0...255)
+        }
+        // Version 7
+        bytes[6] = (bytes[6] & 0x0F) | 0x70
+        // Variant 10xx
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        let hex = bytes.map { String(format: "%02x", $0) }.joined()
+        let i = hex.startIndex
+        func o(_ n: Int) -> String.Index { hex.index(i, offsetBy: n) }
+        return "\(hex[i..<o(8)])-\(hex[o(8)..<o(12)])-\(hex[o(12)..<o(16)])-\(hex[o(16)..<o(20)])-\(hex[o(20)..<o(32)])"
+    }
+
+    private static func vCommandPassword(length: Int) -> String {
+        let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*-_=+")
+        return String((0..<length).map { _ in chars[Int.random(in: 0..<chars.count)] })
+    }
 
     private func processInternal(_ event: EngineEvent) -> EngineState {
         var committedText: String? = nil
