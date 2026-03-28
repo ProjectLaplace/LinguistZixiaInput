@@ -1,4 +1,7 @@
+/.jobs/
+/.worktrees/
 .DS_Store
+*.profraw
 build/
 brainstorm/
 conductor/
