@@ -124,7 +124,7 @@ class LaplaceInputController: IMKInputController {
 
         // <> 翻页：有候选时翻页，无候选时作为书名号标点
         if let chars = event.characters, let first = chars.first,
-            (first == "<" || first == ">"), !currentState.candidates.isEmpty
+            first == "<" || first == ">", !currentState.candidates.isEmpty
         {
             if first == ">" {
                 let currentPageSize = pageFit(from: pageOffset)
@@ -377,7 +377,7 @@ class LaplaceIndicator {
     private let label: NSTextField
 
     init() {
-        let size = NSSize(width: 28, height: 20)
+        let size = NSSize(width: 28, height: 24)
         panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -391,20 +391,32 @@ class LaplaceIndicator {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
         label = NSTextField(labelWithString: "LP")
-        label.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        label.textColor = .white
+        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.textColor = NSColor(white: 0.45, alpha: 1.0)
         label.alignment = .center
-        label.frame = NSRect(origin: .zero, size: size)
-        label.wantsLayer = true
-        label.layer?.backgroundColor = NSColor.systemPurple.cgColor
-        label.layer?.cornerRadius = 4
+        label.isBezeled = false
+        label.drawsBackground = false
 
-        panel.contentView = label
+        // 用一个 layer-backed 容器来控制背景色和圆角，避免 NSTextField layer 时机问题
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.wantsLayer = true
+        container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
+        container.layer!.cornerRadius = 4
+
+        let labelHeight: CGFloat = 16
+        label.frame = NSRect(
+            x: 0, y: (size.height - labelHeight) / 2,
+            width: size.width, height: labelHeight
+        )
+        container.addSubview(label)
+
+        panel.contentView = container
     }
 
     func show(near cursorRect: NSRect) {
-        let x = cursorRect.origin.x + 400
-        let y = cursorRect.origin.y - 24
+        let x = cursorRect.origin.x - 47
+        let y = cursorRect.origin.y - 32
+
         panel.setFrameOrigin(NSPoint(x: x, y: y))
         panel.orderFront(nil)
     }
