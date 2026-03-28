@@ -13,6 +13,8 @@ class LaplaceInputController: IMKInputController {
 
     private let engine = PinyinEngine()
     private var currentState = EngineState.idle
+    /// 候选翻页偏移量
+    private var pageOffset = 0
 
     /// 英文直通模式（Shift toggle）
     private static var englishMode = false
@@ -120,6 +122,32 @@ class LaplaceInputController: IMKInputController {
             return false
         }
 
+        // <> 翻页：有候选时翻页，无候选时作为书名号标点
+        if let chars = event.characters, let first = chars.first,
+            (first == "<" || first == ">"), !currentState.candidates.isEmpty
+        {
+            if first == ">" {
+                let currentPageSize = pageFit(from: pageOffset)
+                let nextOffset = pageOffset + currentPageSize
+                if nextOffset < currentState.candidates.count {
+                    pageOffset = nextOffset
+                }
+            } else {
+                if pageOffset > 0 {
+                    // 从头重新正向分页，找到当前页的前一页起始位置
+                    var prev = 0
+                    var cur = 0
+                    while cur < pageOffset {
+                        prev = cur
+                        cur += pageFit(from: cur)
+                    }
+                    pageOffset = prev
+                }
+            }
+            updateCandidates()
+            return true
+        }
+
         let engineEvent = mapEvent(event)
         guard let ev = engineEvent else {
             // 无法映射的键：缓冲区为空时交给系统
@@ -128,6 +156,7 @@ class LaplaceInputController: IMKInputController {
 
         let previousItems = currentState.items
         currentState = engine.process(ev)
+        pageOffset = 0
         applyState(to: client)
 
         let handleElapsed = (CFAbsoluteTimeGetCurrent() - handleStart) * 1000
@@ -150,7 +179,7 @@ class LaplaceInputController: IMKInputController {
     private func mapEvent(_ event: NSEvent) -> EngineEvent? {
         switch event.keyCode {
         case 51: return .backspace
-        case 49: return .space
+        case 49: return pageOffset > 0 ? .number(pageOffset + 1) : .space
         case 36: return .enter
         case 53: return .esc
         case 48: return .tab(backward: event.modifierFlags.contains(.shift))
@@ -164,7 +193,9 @@ class LaplaceInputController: IMKInputController {
         } else if first.isLetter {
             return .letter(first)
         } else if first.isNumber, let num = Int(String(first)), num >= 1, num <= 9 {
-            return .number(num)
+            let actualIndex = pageOffset + num
+            guard actualIndex <= currentState.candidates.count else { return nil }
+            return .number(actualIndex)
         } else if first == "[" {
             return .bracket(pickLast: false)
         } else if first == "]" {
@@ -267,8 +298,32 @@ class LaplaceInputController: IMKInputController {
 
     // MARK: - 候选词
 
+    /// IMK 面板固定宽度为 17 个汉字单位
+    /// 每个候选占用：字数 + 1（数字标号间隔），首个候选不需要前导间隔
+    /// 公式：sum(字数) + (N-1) ≤ 17
+    private static let panelWidthUnits = 17
+
+    /// 从 offset 开始，计算一页能放多少个候选
+    private func pageFit(from offset: Int) -> Int {
+        let all = currentState.candidates
+        var used = 0
+        var count = 0
+        for i in offset..<all.count {
+            let charWidth = all[i].count
+            let needed = (count == 0) ? charWidth : charWidth + 1
+            if used + needed > Self.panelWidthUnits { break }
+            used += needed
+            count += 1
+        }
+        return max(count, 1)
+    }
+
     override func candidates(_ sender: Any!) -> [Any]! {
-        return currentState.candidates
+        let all = currentState.candidates
+        let start = min(pageOffset, all.count)
+        let count = pageFit(from: start)
+        let end = min(start + count, all.count)
+        return Array(all[start..<end])
     }
 
     override func candidateSelected(_ candidateString: NSAttributedString!) {
@@ -277,6 +332,7 @@ class LaplaceInputController: IMKInputController {
 
         let ev = EngineEvent.number(index + 1)
         currentState = engine.process(ev)
+        pageOffset = 0
 
         if let client = self.client() {
             applyState(to: client)
