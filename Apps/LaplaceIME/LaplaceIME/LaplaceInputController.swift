@@ -427,21 +427,22 @@ class LaplaceIndicator {
 
     /// 短暂显示中英文切换状态
     func showMode(english: Bool, near cursorRect: NSRect) {
+        let container = panel.contentView!
         label.stringValue = english ? "EN" : "中"
-        label.layer?.backgroundColor =
-            english
-            ? NSColor.systemOrange.cgColor : NSColor.systemPurple.cgColor
+        label.textColor = .white
+        container.layer!.backgroundColor = NSColor(white: 0.35, alpha: 1.0).cgColor
 
         let x = cursorRect.origin.x
         let y = cursorRect.origin.y - 24
         panel.setFrameOrigin(NSPoint(x: x, y: y))
         panel.orderFront(nil)
 
-        // 1 秒后隐藏，恢复标签
+        // 1 秒后隐藏，恢复默认样式
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.panel.orderOut(nil)
             self?.label.stringValue = "LP"
-            self?.label.layer?.backgroundColor = NSColor.systemPurple.cgColor
+            self?.label.textColor = NSColor(white: 0.45, alpha: 1.0)
+            container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
         }
     }
 }
