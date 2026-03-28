@@ -1,0 +1,4 @@
+[submodule "rime-ice"]
+	path = rime-ice
+	url = https://github.com/iDvel/rime-ice.git
+	shallow = true
