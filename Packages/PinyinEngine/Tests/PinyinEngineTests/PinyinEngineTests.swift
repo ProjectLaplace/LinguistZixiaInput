@@ -623,6 +623,8 @@ final class PinyinEngineTests: XCTestCase {
         let state = type("gangcd")
         // DP 展开裸声母：gang+c(→cai)+d(→de) 利用短语上下文组出「刚才的」
         XCTAssertEqual(state.candidates.first, "刚才的")
+        // DP 组词后应有首段补充候选（如「刚才」「钢材」等）
+        XCTAssertTrue(state.candidates.count > 1, "应有 DP 首段补充候选")
 
         let committed = space()
         XCTAssertEqual(committed.committedText, "刚才的")

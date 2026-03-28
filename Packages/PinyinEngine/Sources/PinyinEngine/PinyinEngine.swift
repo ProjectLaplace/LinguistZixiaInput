@@ -679,14 +679,22 @@ public class PinyinEngine {
             // 确定首段拼音：优先用 DP 结果的第一个词对应的音节
             let firstPinyin: String
             if let dp = dpResult, !dp.segments.isEmpty {
-                // DP 第一个 segment 的 pinyin 就是首词的完整拼音
                 firstPinyin = dp.segments[0].pinyin
             } else {
                 // 没有 DP 结果，用 PinyinSplitter 的第一个音节
                 firstPinyin = Self.normalizePinyin(defaultSyllables[0])
             }
 
+            // 精确匹配优先；无结果时 fallback 到前缀匹配（裸声母缩写场景）
             var firstSegCandidates = store?.candidates(for: firstPinyin) ?? []
+            if firstSegCandidates.isEmpty {
+                firstSegCandidates = store?.candidatesWithPrefix(firstPinyin) ?? []
+                // 前缀匹配时限制字数与 DP 首段一致，避免引入不相关的长词
+                if let dp = dpResult, !dp.segments.isEmpty {
+                    let wordLen = dp.segments[0].word.count
+                    firstSegCandidates = firstSegCandidates.filter { $0.count == wordLen }
+                }
+            }
             // 固顶字也应用到首段补充候选
             if currentMode == .pinyin {
                 firstSegCandidates = applyPinnedChars(for: firstPinyin, to: firstSegCandidates)
@@ -700,6 +708,19 @@ public class PinyinEngine {
                 firstSegmentPinyin = firstPinyin
                 result.append(contentsOf: filtered)
             }
+
+            // 首个完整音节的单字候选（如 gangcd → gang 的「刚」「港」「钢」等）
+            let firstFullSyllable = Self.normalizePinyin(defaultSyllables[0])
+            if firstFullSyllable != firstPinyin {
+                var singleCharCandidates = store?.candidates(for: firstFullSyllable) ?? []
+                if currentMode == .pinyin {
+                    singleCharCandidates = applyPinnedChars(
+                        for: firstFullSyllable, to: singleCharCandidates)
+                }
+                let existingAfter = Set(result)
+                let singleFiltered = singleCharCandidates.filter { !existingAfter.contains($0) }
+                result.append(contentsOf: singleFiltered)
+            }
         }
 
         // 6. 前缀匹配兜底：精确匹配和 DP 都无结果时，用前缀匹配补充候选。
@@ -709,7 +730,9 @@ public class PinyinEngine {
         //    单字限制：仅当无完整音节时（纯声母如 b/d），限制为单字，
         //    防止声母前缀匹配出「版权」等词；有完整音节时（如 xiangf）不限制。
         if result.isEmpty && (!remainder.isEmpty || defaultSyllables.count == 1) {
-            let prefixResults = store?.candidatesWithPrefix(cleanPinyin) ?? []
+            // 纯声母时加大 limit，因为后续会过滤掉多字词只留单字
+            let prefixLimit = defaultSyllables.isEmpty ? 100 : 9
+            let prefixResults = store?.candidatesWithPrefix(cleanPinyin, limit: prefixLimit) ?? []
             result =
                 defaultSyllables.isEmpty
                 ? prefixResults.filter { $0.count == 1 }
