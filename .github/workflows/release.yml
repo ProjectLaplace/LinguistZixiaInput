@@ -36,17 +36,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.version.outputs.version }}
-          files: build/LaplaceIME-*.zip
+          files: build/LinguistZixiaInput-*.zip
           body: |
             ## Install
 
             ```bash
             # Unzip and remove quarantine attribute
-            unzip LaplaceIME-${{ steps.version.outputs.version }}.zip
-            xattr -cr LaplaceIME.app
+            unzip LinguistZixiaInput-${{ steps.version.outputs.version }}.zip
+            xattr -cr "Linguist Zixia Input.app"
 
             # Install to Input Methods
-            cp -R LaplaceIME.app ~/Library/Input\ Methods/
+            cp -R "Linguist Zixia Input.app" ~/Library/Input\ Methods/
             ```
 
             Then open **System Settings → Keyboard → Input Sources → Edit…**, add **Linguist Zixia Input**, and log out and log back in.
