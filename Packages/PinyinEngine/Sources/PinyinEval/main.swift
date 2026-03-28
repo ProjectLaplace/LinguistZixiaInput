@@ -161,12 +161,14 @@ func evaluate(_ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedC
     if dpText == evalCase.expectedOutput {
         // 绿色：完美匹配
         print("\(Color.green)●\(Color.reset) \(evalCase.rawPinyin) → \(dpText)")
+        print()
         return true
     } else if let reasonable = evalCase.reasonableOutput, dpText == reasonable {
         // 橙色：合理匹配
         print(
             "\(Color.orange)●\(Color.reset) \(evalCase.rawPinyin) → \(dpText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
         )
+        print()
         return true
     } else {
         // 红色：不匹配，展开明细
@@ -174,6 +176,7 @@ func evaluate(_ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedC
             "\(Color.red)●\(Color.reset) \(evalCase.rawPinyin) → \(dpText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
         )
         printDetail(evalCase: evalCase, dpResult: dpResult, store: store)
+        print()
         return false
     }
 }
