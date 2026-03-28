@@ -27,6 +27,7 @@
 ## Conventions
 
 - Chinese text uses「」not ""
+- Code comments in Chinese (中文注释)
 - Deterministic input is the core design principle
 - No network requests, no persistent privacy data
 - state_machine.ragel is a design document, not compiled code

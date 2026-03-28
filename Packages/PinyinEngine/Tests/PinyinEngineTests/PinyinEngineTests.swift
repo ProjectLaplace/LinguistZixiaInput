@@ -584,6 +584,28 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertTrue(state.committedText!.hasSuffix("。"))
     }
 
+    func testUnderscoreEmptyBufferCommitsDash() {
+        // 无活跃输入时，下划线应映射为破折号
+        let state = engine.process(.punctuation("_"))
+        XCTAssertEqual(state.committedText, "——")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testUnderscoreWithCandidatesConfirmsFirstThenCommitsDash() {
+        // 有候选时，下划线作为标点：确认首选 + 追加破折号
+        type("shi")
+        let state = engine.process(.punctuation("_"))
+        XCTAssertNotNil(state.committedText)
+        XCTAssertTrue(state.committedText!.hasSuffix("——"))
+    }
+
+    func testUnderscoreAsLetterInActiveInput() {
+        // 有活跃输入时，下划线作为字母追加到拼音（自定义短语场景）
+        type("test")
+        let state = engine.process(.letter("_"))
+        XCTAssertTrue(state.items.contains(where: { $0.content.contains("_") }))
+    }
+
     func testConfirmPunctuationCharsConstantExists() {
         // Verify the engine exposes the confirm punctuation set
         let chars = PinyinEngine.confirmPunctuationChars
