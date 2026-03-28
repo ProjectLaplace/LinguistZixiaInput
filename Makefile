@@ -4,7 +4,7 @@ CONFIG = Debug
 BUILD_DIR = $(CURDIR)/build
 APP_NAME = Linguist Zixia Input.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
-QUIET_FLAG = $(if $(Q),-quiet)
+QUIET_FLAG = $(if $(V),,-quiet)
 
 .PHONY: build install clean test dict format eval query list-user-words reset-user-words
 
