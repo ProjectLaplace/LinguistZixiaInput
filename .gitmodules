@@ -2,3 +2,7 @@
 	path = rime-ice
 	url = https://github.com/iDvel/rime-ice.git
 	shallow = true
+[submodule "rime-frost"]
+	path = rime-frost
+	url = https://github.com/gaboolic/rime-frost.git
+	shallow = true

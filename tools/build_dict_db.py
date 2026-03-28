@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
 """
-Build SQLite dictionary databases for LaplaceIME.
+Build SQLite dictionary databases for Linguist Zixia Input.
 
-Supports two source formats:
-  - rime: rime-ice .dict.yaml files (TSV after YAML header)
-  - json: simple {"pinyin": ["word1", "word2", ...]} JSON files
+Supports two dictionary sources:
+  - rime-ice (default): https://github.com/iDvel/rime-ice
+  - rime-frost: https://github.com/gaboolic/rime-frost
 
-Presets (--preset) provide shorthand for common rime-ice configurations:
-  - default: 8105 + base + ext + others (recommended starting point)
-  - full:    default + tencent (large, slower to build)
-  - minimal: 8105 + base only
+Presets provide shorthand for common configurations:
   - chars:   8105 character table only
+  - minimal: 8105 + base
+  - default: 8105 + base + ext + others (recommended)
+  - full:    default + tencent
+  - extra:   full + cn_dicts_cell (frost only)
 
 Usage:
-    # Build with a preset (rime-ice repo path auto-detected or specified):
-    ./tools/build_dict_db.py --preset default
-    ./tools/build_dict_db.py --preset full --rime-ice /path/to/rime-ice
+    # Build from rime-ice (default source):
+    ./tools/build_dict_db.py preset default
 
-    # Build from explicit rime-ice files:
-    ./tools/build_dict_db.py rime rime-ice/cn_dicts/8105.dict.yaml rime-ice/cn_dicts/base.dict.yaml -o zh_dict.db
+    # Build from rime-frost:
+    ./tools/build_dict_db.py preset default --source frost
+    ./tools/build_dict_db.py preset extra --source frost
 
-    # Build from JSON fixtures (for testing):
-    ./tools/build_dict_db.py json fixtures/zh_dict.json -o zh_dict.db
+    # Build from explicit files:
+    ./tools/build_dict_db.py build rime path/to/dict.yaml -o zh_dict.db
 
-    # Rebuild test fixtures as SQLite:
-    ./tools/build_dict_db.py --fixtures
+    # Rebuild test fixtures:
+    ./tools/build_dict_db.py fixtures
 """
 
 import argparse
+import glob
 import json
 import os
 import sqlite3
@@ -41,9 +43,25 @@ RESOURCES_DIR = os.path.join(
     PROJECT_ROOT, "Packages", "PinyinEngine", "Sources", "PinyinEngine", "Resources"
 )
 FIXTURES_DIR = os.path.join(PROJECT_ROOT, "fixtures")
-RIME_ICE_DIR = os.path.join(PROJECT_ROOT, "rime-ice")
+
+SOURCES = {
+    "ice": {
+        "dir": os.path.join(PROJECT_ROOT, "rime-ice"),
+        "name": "rime-ice",
+        "url": "https://github.com/iDvel/rime-ice",
+    },
+    "frost": {
+        "dir": os.path.join(PROJECT_ROOT, "rime-frost"),
+        "name": "rime-frost",
+        "url": "https://github.com/gaboolic/rime-frost",
+    },
+}
 
 PRESETS = {
+    "chars": {
+        "description": "8105 character table only",
+        "files": ["cn_dicts/8105.dict.yaml"],
+    },
     "minimal": {
         "description": "8105 character table + base vocabulary",
         "files": ["cn_dicts/8105.dict.yaml", "cn_dicts/base.dict.yaml"],
@@ -58,7 +76,7 @@ PRESETS = {
         ],
     },
     "full": {
-        "description": "All dictionaries including Tencent word vectors",
+        "description": "default + tencent word vectors",
         "files": [
             "cn_dicts/8105.dict.yaml",
             "cn_dicts/base.dict.yaml",
@@ -67,9 +85,17 @@ PRESETS = {
             "cn_dicts/tencent.dict.yaml",
         ],
     },
-    "chars": {
-        "description": "8105 character table only",
-        "files": ["cn_dicts/8105.dict.yaml"],
+    "extra": {
+        "description": "full + cell dictionaries (frost only)",
+        "files": [
+            "cn_dicts/8105.dict.yaml",
+            "cn_dicts/base.dict.yaml",
+            "cn_dicts/ext.dict.yaml",
+            "cn_dicts/others.dict.yaml",
+            "cn_dicts/tencent.dict.yaml",
+        ],
+        "glob": ["cn_dicts_cell/*.dict.yaml"],
+        "sources": ["frost"],
     },
 }
 
@@ -172,25 +198,40 @@ def build_from_files(fmt, input_files, output_path):
 
 
 def cmd_preset(args):
-    preset = PRESETS[args.preset]
-    rime_ice = args.rime_ice or RIME_ICE_DIR
+    preset_name = args.preset
+    preset = PRESETS[preset_name]
+    source_key = args.source
 
-    if not os.path.isdir(rime_ice):
-        print(f"Error: rime-ice directory not found at {rime_ice}", file=sys.stderr)
+    # 检查 preset 是否限制了可用 source
+    allowed = preset.get("sources")
+    if allowed and source_key not in allowed:
         print(
-            "Clone it first: git clone https://github.com/iDvel/rime-ice.git",
+            f"Error: preset '{preset_name}' is only available for: {', '.join(allowed)}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    input_files = [os.path.join(rime_ice, f) for f in preset["files"]]
+    source = SOURCES[source_key]
+    source_dir = source["dir"]
+
+    if not os.path.isdir(source_dir):
+        print(f"Error: {source['name']} not found at {source_dir}", file=sys.stderr)
+        print(f"Run: git submodule update --init", file=sys.stderr)
+        sys.exit(1)
+
+    # 收集文件列表：显式文件 + glob 模式
+    input_files = [os.path.join(source_dir, f) for f in preset["files"]]
+    for pattern in preset.get("glob", []):
+        matched = sorted(glob.glob(os.path.join(source_dir, pattern)))
+        input_files.extend(matched)
+
     for f in input_files:
         if not os.path.isfile(f):
             print(f"Error: file not found: {f}", file=sys.stderr)
             sys.exit(1)
 
     output = os.path.join(RESOURCES_DIR, "zh_dict.db")
-    print(f"Building [{args.preset}]: {preset['description']}")
+    print(f"Building [{preset_name}] from {source['name']}: {preset['description']}")
     build_from_files("rime", input_files, output)
 
 
@@ -215,14 +256,14 @@ def cmd_fixtures(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build SQLite dictionary databases for LaplaceIME",
+        description="Build SQLite dictionary databases for Linguist Zixia Input",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command")
 
     # Preset mode
     p_preset = sub.add_parser(
-        "preset", help="Build from a rime-ice preset configuration"
+        "preset", help="Build from a preset configuration"
     )
     p_preset.add_argument(
         "preset",
@@ -230,7 +271,10 @@ def main():
         help="Preset name",
     )
     p_preset.add_argument(
-        "--rime-ice", help=f"Path to rime-ice repo (default: {RIME_ICE_DIR})"
+        "--source",
+        choices=SOURCES.keys(),
+        default="ice",
+        help="Dictionary source (default: ice)",
     )
 
     # Explicit file mode
@@ -243,7 +287,7 @@ def main():
     sub.add_parser("fixtures", help="Rebuild test fixture databases from JSON files")
 
     # List presets
-    sub.add_parser("list", help="List available presets")
+    sub.add_parser("list", help="List available presets and sources")
 
     args = parser.parse_args()
 
@@ -254,11 +298,20 @@ def main():
     elif args.command == "fixtures":
         cmd_fixtures(args)
     elif args.command == "list":
-        print("Available presets:")
+        print("Sources:")
+        for key, src in SOURCES.items():
+            print(f"  {key:8s}  {src['name']} ({src['url']})")
+        print()
+        print("Presets:")
         for name, preset in PRESETS.items():
-            print(f"  {name:10s}  {preset['description']}")
+            restriction = ""
+            if "sources" in preset:
+                restriction = f" [{', '.join(preset['sources'])} only]"
+            print(f"  {name:10s}  {preset['description']}{restriction}")
             for f in preset["files"]:
                 print(f"              - {f}")
+            for g in preset.get("glob", []):
+                print(f"              - {g}")
     else:
         parser.print_help()
 
