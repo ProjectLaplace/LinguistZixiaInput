@@ -1116,6 +1116,17 @@ public class PinyinEngine {
                         continue
                     }
 
+                    // 碎片化防护：若前一音节尾 + 裸声母首字符可组成另一合法音节，
+                    // 说明用户输入更自然地解读为更长的单一音节，裸声母展开应跳过。
+                    // 例：["gan"] + "g" → "gang" 合法 → 阻止 gan+g(→ga)=尴尬 的虚假匹配
+                    //     ["yo","n"] + "g" → "ng" 合法 → 阻止 yo+n+g(→gan)=永安
+                    if let lastSyl = accSyllables.last, let firstChar = initial.first {
+                        let combined = lastSyl + String(firstChar)
+                        if PinyinSplitter.validSyllables.contains(combined) {
+                            continue
+                        }
+                    }
+
                     let newPos = curPos + initialLen
                     for expanded in expansions {
                         let expandedPinyin = accPinyin + expanded
