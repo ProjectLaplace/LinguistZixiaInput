@@ -78,83 +78,13 @@ func formatScore(_ result: ConversionResult) -> String {
 }
 
 // MARK: - Split Evaluation
-
-/// 按指定切分（如 ["jingque", "biaoyi"]）查词库，返回该路径的评分。
-func evaluateSplit(
-    _ syllableGroups: [String], store: DictionaryStore
-) -> ConversionResult? {
-    var segments: [(word: String, pinyin: String, frequency: Int)] = []
-    var wordFreqSum: Double = 0
-    var wordCount = 0
-    var wordCharCount = 0
-    var totalFreqSum: Double = 0
-    var segmentCount = 0
-    var charCount = 0
-
-    for group in syllableGroups {
-        let normalized = PinyinEngine.normalizePinyin(group)
-        guard let top = store.topCandidate(for: normalized) else {
-            let singleResults = evaluateSingleChars(normalized, store: store)
-            if singleResults.isEmpty { return nil }
-            for sr in singleResults {
-                segments.append(sr)
-                let ws = log(Double(max(sr.frequency, 1)))
-                totalFreqSum += ws
-                segmentCount += 1
-                charCount += 1
-            }
-            continue
-        }
-
-        let frequency = top.frequency
-        let word = top.word
-        let segmentFreq = log(Double(max(frequency, 1)))
-        let isWord = word.count >= 2 && frequency >= 10000
-
-        segments.append((word, normalized, frequency))
-        wordFreqSum += isWord ? segmentFreq : 0
-        wordCount += isWord ? 1 : 0
-        let wordChars = word.count
-        wordCharCount += isWord ? wordChars : 0
-        totalFreqSum += segmentFreq
-        let segmentContribution = (!isWord && word.count >= 2) ? word.count : 1
-        segmentCount += segmentContribution
-        charCount += wordChars
-    }
-
-    let wordFreqAvg = wordCount > 0 ? wordFreqSum / Double(wordCount) : -1
-    let wordCoverage = charCount > 0 ? Double(wordCharCount) / Double(charCount) : 0
-    let pathScore = wordFreqAvg + 4.0 * wordCoverage
-
-    return ConversionResult(
-        segments: segments,
-        text: segments.map { $0.word }.joined(),
-        wordFreqAvg: wordFreqAvg,
-        wordCoverage: wordCoverage,
-        pathScore: pathScore,
-        segmentCount: segmentCount,
-        totalFreqSum: totalFreqSum)
-}
-
-func evaluateSingleChars(
-    _ pinyin: String, store: DictionaryStore
-) -> [(word: String, pinyin: String, frequency: Int)] {
-    guard let syllables = PinyinSplitter.split(pinyin) else { return [] }
-    var results: [(word: String, pinyin: String, frequency: Int)] = []
-    for syl in syllables {
-        if let top = store.topCandidate(for: syl) {
-            results.append((top.word, syl, top.frequency))
-        } else {
-            results.append(("?", syl, 0))
-        }
-    }
-    return results
-}
+// 按指定切分查词库评分使用 Conversion.scoreSplit（PinyinEngine 模块）。
+// eval 工具不再维护独立的评分累加实现。
 
 // MARK: - Evaluation
 
 func evaluate(_ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?) -> Bool {
-    let convResult = PinyinEngine.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
+    let convResult = Conversion.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
     let actualText = convResult?.text ?? ""
 
     // 判定
@@ -192,7 +122,7 @@ func printDetail(evalCase: EvalCase, convResult: ConversionResult?, store: Dicti
 
     // 按指定切分查词库的评分
     let splitLabel = evalCase.expectedSplit.joined(separator: "|")
-    if let splitResult = evaluateSplit(evalCase.expectedSplit, store: store) {
+    if let splitResult = Conversion.scoreSplit(evalCase.expectedSplit, store: store) {
         print("  \(Color.green)split:\(Color.reset)    \(splitLabel) → \(formatPath(splitResult))")
         print("           \(formatScore(splitResult))")
     } else {
@@ -329,7 +259,7 @@ if queryMode {
     }
 
     // Conversion 结果
-    if let convResult = PinyinEngine.compose(pinyin, store: store, pinnedChars: pinnedChars) {
+    if let convResult = Conversion.compose(pinyin, store: store, pinnedChars: pinnedChars) {
         print(
             "\(Color.bold)conv:\(Color.reset)   \(convResult.text)  \(Color.dim)\(formatPath(convResult))\(Color.reset)"
         )
