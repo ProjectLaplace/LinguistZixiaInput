@@ -115,7 +115,7 @@ public enum PinyinSplitter {
         "z", "c", "s",
     ]
 
-    /// 声母→合法音节列表映射，用于 DP 中裸声母展开。
+    /// 声母→合法音节列表映射，用于 Conversion 中裸声母展开。
     /// 每个音节归属于其最长匹配声母（如 chi 归 ch，ci 归 c）。
     static let syllablesForInitial: [String: [String]] = {
         var map: [String: [String]] = [:]

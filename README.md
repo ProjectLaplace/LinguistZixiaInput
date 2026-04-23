@@ -50,19 +50,19 @@ python3 tools/build_dict_db.py preset default
 # 3. 运行引擎测试
 make test
 
-# 4. 运行 DP 回归测试
+# 4. 运行 Conversion 回归测试
 make eval
 
 # 5. 构建并安装输入法
 make install
 ```
 
-### DP 回归测试工具 (pinyin-eval)
+### Conversion 回归测试工具 (pinyin-eval)
 
-`pinyin-eval` 是一个 Swift CLI，用于验证拼音串的 DP 切分和组词结果是否符合预期。它复用 PinyinEngine 的真实 DP 算法，支持绿/橙/红三态判定：
+`pinyin-eval` 是一个 Swift CLI，用于验证拼音串的 Conversion 切分组词结果是否符合预期。它复用 PinyinEngine 的真实 Conversion 实现，支持绿/橙/红三态判定：
 
-- **绿色**：DP 首选与预期输出一致
-- **橙色**：DP 首选与合理输出一致（预期输出需要更优的算法才能达到）
+- **绿色**：Conversion 首选与预期输出一致
+- **橙色**：Conversion 首选与合理输出一致（预期输出需要更优的算法才能达到）
 - **红色**：都不匹配，展开评分明细用于分析
 
 案例文件 `pinyin-strings.cases` 格式：
@@ -80,11 +80,11 @@ benti|lun       本体论    本提论
 ## 项目结构
 
 - `Packages/PinyinEngine` - 纯 Swift 输入法引擎，仅依赖 Foundation
-- `Packages/PinyinEngine/Sources/PinyinEval` - DP 回归测试 CLI 工具
+- `Packages/PinyinEngine/Sources/PinyinEval` - Conversion 回归测试 CLI 工具
 - `Apps/LaplaceIME` - macOS IMK 输入法应用
 - `tools/build_dict_db.py` - 词库构建工具
 - `fixtures/` - 测试用小型 JSON 词库
-- `pinyin-strings.cases` - DP 回归测试案例
+- `pinyin-strings.cases` - Conversion 回归测试案例
 
 ## 文档
 

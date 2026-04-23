@@ -1,42 +1,45 @@
 import Foundation
 
-/// DP 路径诊断结果：一条切分路径的完整评分明细。
-public struct DPPathResult {
-    /// 逐词拆分：每个词及其频率
+/// Conversion 路径诊断结果：一条切分路径的完整评分明细。
+///
+/// 术语参见 Conversion.md。chunk = DFS 切分单元（合法音节或裸声母），
+/// segment = 路径段（对应一次词库命中），word = ≥2 字且 freq ≥ 10000 的词库条目。
+public struct ConversionResult {
+    /// 路径段：每段对应一次词库命中的 (word, pinyin, freq) 三元组
     public let segments: [(word: String, pinyin: String, frequency: Int)]
-    /// 原始输入的切分片段（保留裸声母等原始形式，与输入字符一一对应）
-    public let syllables: [String]
+    /// 原始输入的切分单元序列（chunks），含合法音节和裸声母，与输入字符一一对应
+    public let chunks: [String]
     /// 组合文本（所有 word 拼接）
     public let text: String
-    /// 多字词平均 log(freq)
-    public let avgMultiCharScore: Double
-    /// 多字词覆盖率（被多字词覆盖的音节数 / 总音节数）
-    public let coverage: Double
-    /// compositeScore = avgMulti + 4 * coverage
-    public let compositeScore: Double
-    /// 总词数
-    public let wordCount: Int
-    /// 总 log(freq) 之和
-    public let totalScore: Double
+    /// 词段平均 log(freq)
+    public let wordFreqAvg: Double
+    /// 词覆盖率（被词覆盖的字数 / 总字数）
+    public let wordCoverage: Double
+    /// pathScore = wordFreqAvg + 4 * wordCoverage
+    public let pathScore: Double
+    /// 路径段总数（含反作弊：低频多字词段按 word.count 计入）
+    public let segmentCount: Int
+    /// 所有段 log(freq) 之和
+    public let totalFreqSum: Double
 
     public init(
         segments: [(word: String, pinyin: String, frequency: Int)],
-        syllables: [String] = [],
+        chunks: [String] = [],
         text: String,
-        avgMultiCharScore: Double,
-        coverage: Double,
-        compositeScore: Double,
-        wordCount: Int,
-        totalScore: Double
+        wordFreqAvg: Double,
+        wordCoverage: Double,
+        pathScore: Double,
+        segmentCount: Int,
+        totalFreqSum: Double
     ) {
         self.segments = segments
-        self.syllables = syllables
+        self.chunks = chunks
         self.text = text
-        self.avgMultiCharScore = avgMultiCharScore
-        self.coverage = coverage
-        self.compositeScore = compositeScore
-        self.wordCount = wordCount
-        self.totalScore = totalScore
+        self.wordFreqAvg = wordFreqAvg
+        self.wordCoverage = wordCoverage
+        self.pathScore = pathScore
+        self.segmentCount = segmentCount
+        self.totalFreqSum = totalFreqSum
     }
 }
 
@@ -563,26 +566,26 @@ public class PinyinEngine {
         // 先用 PinyinSplitter 做默认切分（用于候选匹配）
         let (defaultSyllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
 
-        // 尝试用 DP 切分来构建 composingItems（DP 的切分更准确，考虑了词典）
+        // 尝试用 Conversion 切分来构建 composingItems（Conversion 的切分更准确，考虑了词典）
         let store = (currentMode == .pinyin) ? zhStore : jaStore
         let cleanPinyin = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
-        let dpResult = store.flatMap {
+        let convResult = store.flatMap {
             Self.compose(cleanPinyin, store: $0, pinnedChars: pinnedChars)
         }
 
-        if let dp = dpResult {
-            // DP 成功：用 DP syllables 的长度从 rawPinyin 截取原始片段
-            // syllables 保留裸声母原始形式（如 "j" 而非展开后的 "ji"），与输入字符一一对应
+        if let conv = convResult {
+            // Conversion 成功：用 chunks 的长度从 rawPinyin 截取原始片段
+            // chunks 保留裸声母原始形式（如 "j" 而非展开后的 "ji"），与输入字符一一对应
             var offset = rawPinyin.startIndex
-            for syllable in dp.syllables {
+            for chunk in conv.chunks {
                 while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
                     offset = rawPinyin.index(after: offset)
                 }
-                let end = rawPinyin.index(offset, offsetBy: syllable.count)
+                let end = rawPinyin.index(offset, offsetBy: chunk.count)
                 composingItems.append(.pinyin(String(rawPinyin[offset..<end])))
                 offset = end
             }
-            // DP 未覆盖的尾部（理论上不应发生，但兜底）
+            // Conversion 未覆盖的尾部（理论上不应发生，但兜底）
             if offset < rawPinyin.endIndex {
                 while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
                     offset = rawPinyin.index(after: offset)
@@ -592,7 +595,7 @@ public class PinyinEngine {
                 }
             }
         } else {
-            // DP 无结果：fallback 到 splitPartial
+            // Conversion 无结果：fallback 到 splitPartial
             if defaultSyllables.count > 1
                 || (defaultSyllables.count == 1 && !remainder.isEmpty)
             {
@@ -620,7 +623,7 @@ public class PinyinEngine {
         updateCandidatesWholeString(defaultSyllables: defaultSyllables, remainder: remainder)
     }
 
-    /// 更新候选词：精确匹配 → DP 组词 → 首段补充候选 → 前缀 → 末段兜底
+    /// 更新候选词：精确匹配 → Conversion 组词 → 首段补充候选 → 前缀 → 末段兜底
     private func updateCandidatesWholeString(defaultSyllables: [String], remainder: String) {
         let _ucStart = CFAbsoluteTimeGetCurrent()
         let store = (currentMode == .pinyin) ? zhStore : jaStore
@@ -656,32 +659,32 @@ public class PinyinEngine {
             result.append(word)
         }
 
-        // 4. 有精确匹配时跳过 DP；无精确匹配时用 DP 组词
+        // 4. 有精确匹配时跳过 Conversion；无精确匹配时用 Conversion 组词
         //    触发条件：多音节且无精确匹配。remainder 为裸声母时也触发（如 gangcd → gang+c, remainder=d）
         let remainderIsBareInitial =
             !remainder.isEmpty && PinyinSplitter.validInitials.contains(remainder)
-        let shouldRunDP =
+        let shouldRunConversion =
             result.isEmpty && defaultSyllables.count > 1
             && (remainder.isEmpty || remainderIsBareInitial)
-        var dpResult: DPPathResult? = nil
-        if shouldRunDP {
-            dpResult = unifiedCompose(cleanPinyin, store: store)
-            if let composed = dpResult {
+        var convResult: ConversionResult? = nil
+        if shouldRunConversion {
+            convResult = unifiedCompose(cleanPinyin, store: store)
+            if let composed = convResult {
                 result.append(composed.text)
             }
         }
 
-        // 5. 首段补充候选：从 DP 结果或 PinyinSplitter 获取首段拼音，
+        // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
         //    追加该拼音的其他候选，方便用户快速替换首词继续组词
         firstSegmentCandidateStart = 0
         firstSegmentPinyin = ""
         if (remainder.isEmpty || remainderIsBareInitial) && defaultSyllables.count > 1 {
-            // 确定首段拼音：优先用 DP 结果的第一个词对应的音节
+            // 确定首段拼音：优先用 Conversion 结果的第一个词对应的音节
             let firstPinyin: String
-            if let dp = dpResult, !dp.segments.isEmpty {
-                firstPinyin = dp.segments[0].pinyin
+            if let conv = convResult, !conv.segments.isEmpty {
+                firstPinyin = conv.segments[0].pinyin
             } else {
-                // 没有 DP 结果，用 PinyinSplitter 的第一个音节
+                // 没有 Conversion 结果，用 PinyinSplitter 的第一个音节
                 firstPinyin = Self.normalizePinyin(defaultSyllables[0])
             }
 
@@ -689,9 +692,9 @@ public class PinyinEngine {
             var firstSegCandidates = store?.candidates(for: firstPinyin) ?? []
             if firstSegCandidates.isEmpty {
                 firstSegCandidates = store?.candidatesWithPrefix(firstPinyin) ?? []
-                // 前缀匹配时限制字数与 DP 首段一致，避免引入不相关的长词
-                if let dp = dpResult, !dp.segments.isEmpty {
-                    let wordLen = dp.segments[0].word.count
+                // 前缀匹配时限制字数与 Conversion 首段一致，避免引入不相关的长词
+                if let conv = convResult, !conv.segments.isEmpty {
+                    let wordLen = conv.segments[0].word.count
                     firstSegCandidates = firstSegCandidates.filter { $0.count == wordLen }
                 }
             }
@@ -699,7 +702,7 @@ public class PinyinEngine {
             if currentMode == .pinyin {
                 firstSegCandidates = applyPinnedChars(for: firstPinyin, to: firstSegCandidates)
             }
-            // 去掉已在主候选中出现的、以及与 DP 首词相同的
+            // 去掉已在主候选中出现的、以及与 Conversion 首词相同的
             let existingSet = Set(result)
             let filtered = firstSegCandidates.filter { !existingSet.contains($0) }
 
@@ -723,7 +726,7 @@ public class PinyinEngine {
             }
         }
 
-        // 6. 前缀匹配兜底：精确匹配和 DP 都无结果时，用前缀匹配补充候选。
+        // 6. 前缀匹配兜底：精确匹配和 Conversion 都无结果时，用前缀匹配补充候选。
         //    两种触发场景：
         //    a) 音节不完整（remainder 不为空），如 b → ba, bai, ban... / xiangf → xiangfa...
         //    b) 单音节但词库无精确条目（如 n 是合法音节但词库无 pinyin='n'）
@@ -909,104 +912,109 @@ public class PinyinEngine {
         return result
     }
 
-    // MARK: - 统一切分组词 DP
+    // MARK: - Conversion 切分组词 DP
 
-    /// 统一音节切分与词库组词的单趟 DP。
+    /// Conversion 核心：统一音节切分与词库组词的单趟 DP。
     /// 直接在原始拼音字符串上操作，同时决定音节边界和短语匹配。
     /// 使用词频对数之和作为评分，选择整体最自然的组合。
     ///
     /// 例如 "jianchayixiane":
     ///   两阶段法: split→["jian","cha","yi","xian","e"] → 检查仪限额
-    ///   统一 DP:  检查(580k)+一下(501k)+呢(高频) >> 检查仪(4k)+限额(138k)
+    ///   Conversion:  检查(580k)+一下(501k)+呢(高频) >> 检查仪(4k)+限额(138k)
     ///
-    /// DP 组词：对拼音串执行 DP 切分并返回最优路径的评分明细。
-    /// 这是引擎和 eval 工具共用的唯一 DP 实现。
+    /// 对拼音串执行 Conversion 切分并返回最优路径的评分明细。
+    /// 这是引擎和 eval 工具共用的唯一 Conversion 实现。
+    ///
+    /// 术语定义参见 Conversion.md。
     public static func compose(
         _ input: String, store: DictionaryStore, pinnedChars: PinnedCharStore? = nil
-    ) -> DPPathResult? {
+    ) -> ConversionResult? {
         let chars = Array(input)
         let n = chars.count
         guard n > 0 else { return nil }
 
-        struct DPState {
+        /// Conversion DP 填表的中间状态。字段含义与 ConversionResult 一致，但额外保留了
+        /// wordFreqSum / wordCount / wordCharCount（用于累加），以及 charCount（分母）。
+        struct ConversionState {
             var segments: [(word: String, pinyin: String, frequency: Int)]
-            var syllables: [String]
-            var multiCharScore: Double  // 多字词 log(freq) 之和
-            var multiCharCount: Int  // 多字词数量（用于计算平均分）
-            var multiCharSylCount: Int  // 被多字词覆盖的音节数（用于计算覆盖率）
-            var totalScore: Double  // 全部词 log(freq) 之和
-            var wordCount: Int  // 总词数（越少越好）
-            var sylCount: Int  // 语义音节数（= 字数之和）
-            var splitCount: Int  // DFS 切分段数（越少越好，避免 gang→ga+ng）
+            var chunks: [String]  // DFS 切分单元序列（含合法音节和裸声母）
+            var wordFreqSum: Double  // 词段 log(freq) 之和
+            var wordCount: Int  // 词段数量（word.count >= 2 且 freq >= 10000）
+            var wordCharCount: Int  // 被词段覆盖的字数
+            var totalFreqSum: Double  // 所有段 log(freq) 之和
+            var segmentCount: Int  // 路径段总数（含反作弊：低频多字词按 word.count 计入）
+            var charCount: Int  // 产出字数（= 所有段 word.count 之和）
+            var chunkCount: Int  // DFS 切分单元数（越少越好，避免 gang→ga+ng）
         }
 
-        // DP 路径比较：综合评分
-        // 主键：compositeScore = avgMulti + 4 * coverage（平衡词质量与覆盖率）
-        // 次键：词数越少越好（避免 jiao 被拆成 ji+a+o）
-        // 三键：切分段数越少越好（避免 gang 被拆成 ga+ng）
-        //        原则：系统应优先选更紧凑的切分，用户可以用 ' 主动拆分，
+        // 路径比较顺序（参见 Conversion.md "比较顺序"）：
+        // 主键：pathScore = wordFreqAvg + 4 · wordCoverage
+        // 次键：segmentCount 越小越好（避免 jiao 被拆成 ji+a+o）
+        // 三键：chunkCount 越小越好（避免 gang 被拆成 ga+ng）
+        //        原则：系统应优先选更紧凑的切分，用户可用 ' 主动拆分，
         //        但无法反向合并系统已拆开的音节。
-        // 末键：总 log(freq) 之和
+        // 末键：totalFreqSum 越大越好
         //
-        // α=4 的直觉：覆盖率从 0.8→1.0（+0.2）等价于 avgMulti 提升 0.8。
-        // 这让高质量多字词（什么 log=13）能压过低质量全覆盖（失神+门额 avg=9），
-        // 同时让同质量下全覆盖（精确+匹配）胜过有单字填充的路径（景区+饿+匹配）。
-        func isBetter(_ a: DPState, than b: DPState) -> Bool {
-            func compositeScore(_ s: DPState) -> Double {
-                let avg =
-                    s.multiCharCount > 0
-                    ? s.multiCharScore / Double(s.multiCharCount) : -1
-                let cov =
-                    s.sylCount > 0
-                    ? Double(s.multiCharSylCount) / Double(s.sylCount) : 0
-                return avg + 4.0 * cov
+        // α=4 的直觉：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。
+        // 让高质量多字词（log=13）能压过低质量全覆盖（avg=9），
+        // 同时同质量下全覆盖（精确+匹配）胜过有单字填充的（景区+饿+匹配）。
+        func isBetter(_ a: ConversionState, than b: ConversionState) -> Bool {
+            func pathScore(_ s: ConversionState) -> Double {
+                let wordFreqAvg =
+                    s.wordCount > 0
+                    ? s.wordFreqSum / Double(s.wordCount) : -1
+                let wordCoverage =
+                    s.charCount > 0
+                    ? Double(s.wordCharCount) / Double(s.charCount) : 0
+                return wordFreqAvg + 4.0 * wordCoverage
             }
-            let aScore = compositeScore(a)
-            let bScore = compositeScore(b)
+            let aScore = pathScore(a)
+            let bScore = pathScore(b)
             if aScore != bScore { return aScore > bScore }
-            if a.wordCount != b.wordCount { return a.wordCount < b.wordCount }
-            if a.splitCount != b.splitCount { return a.splitCount < b.splitCount }
-            return a.totalScore > b.totalScore
+            if a.segmentCount != b.segmentCount { return a.segmentCount < b.segmentCount }
+            if a.chunkCount != b.chunkCount { return a.chunkCount < b.chunkCount }
+            return a.totalFreqSum > b.totalFreqSum
         }
 
-        var dp: [DPState?] = Array(repeating: nil, count: n + 1)
-        dp[n] = DPState(
-            segments: [], syllables: [], multiCharScore: 0, multiCharCount: 0,
-            multiCharSylCount: 0, totalScore: 0, wordCount: 0, sylCount: 0, splitCount: 0)
+        var dp: [ConversionState?] = Array(repeating: nil, count: n + 1)
+        dp[n] = ConversionState(
+            segments: [], chunks: [], wordFreqSum: 0, wordCount: 0,
+            wordCharCount: 0, totalFreqSum: 0, segmentCount: 0, charCount: 0, chunkCount: 0)
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
             enumeratePhrases(chars: chars, from: pos, store: store, pinnedChars: pinnedChars) {
-                word, frequency, syllables, endPos in
+                word, frequency, chunks, endPos in
                 guard let rest = dp[endPos] else { return }
 
-                let wordScore = log(Double(max(frequency, 1)))
-                // 低频多字词（freq < 10000）视为噪声，不计入多字词评分和覆盖率
-                // 例如「的脚」(5555) 不应作为多字词提升 coverage
-                let isMultiChar = word.count >= 2 && frequency >= 10000
-                let multiCharScore = (isMultiChar ? wordScore : 0) + rest.multiCharScore
-                let multiCharCount = (isMultiChar ? 1 : 0) + rest.multiCharCount
-                // 用 word.count（字数 = 真实音节数）而非 syllables.count（DFS 切分数）
+                let segmentFreq = log(Double(max(frequency, 1)))
+                // 低频多字词（freq < 10000）视为噪声，不计入词段评分和覆盖率
+                // 例如「的脚」(5555) 不应作为词段提升 wordCoverage
+                let isWord = word.count >= 2 && frequency >= 10000
+                let wordFreqSum = (isWord ? segmentFreq : 0) + rest.wordFreqSum
+                let wordCount = (isWord ? 1 : 0) + rest.wordCount
+                // 用 word.count（字数 = 真实音节数）而非 chunks.count（DFS 切分数）
                 // DFS 可能把 "yixia" 切成 ["yi","xi","a"]（3 段），但一下只有 2 个音节
-                let trueSylCount = word.count
-                let multiCharSylCount = (isMultiChar ? trueSylCount : 0) + rest.multiCharSylCount
-                let totalScore = wordScore + rest.totalScore
-                // 低频多字词按字数计入词数，避免垃圾词（如「的脚」）通过减少词数获益
-                let wordCountContribution = (!isMultiChar && word.count >= 2) ? word.count : 1
-                let wordCount = wordCountContribution + rest.wordCount
-                let totalSyls = trueSylCount + rest.sylCount
+                let wordChars = word.count
+                let wordCharCount = (isWord ? wordChars : 0) + rest.wordCharCount
+                let totalFreqSum = segmentFreq + rest.totalFreqSum
+                // 反作弊：低频多字词按字数计入段数，避免垃圾词（如「的脚」）
+                // 通过"减少段数"获益（段数是次键，越小越好）
+                let segmentContribution = (!isWord && word.count >= 2) ? word.count : 1
+                let segmentCount = segmentContribution + rest.segmentCount
+                let charCount = wordChars + rest.charCount
 
-                let pinyinStr = syllables.joined()
-                let candidate = DPState(
+                let pinyinStr = chunks.joined()
+                let candidate = ConversionState(
                     segments: [(word, pinyinStr, frequency)] + rest.segments,
-                    syllables: syllables + rest.syllables,
-                    multiCharScore: multiCharScore,
-                    multiCharCount: multiCharCount,
-                    multiCharSylCount: multiCharSylCount,
-                    totalScore: totalScore,
+                    chunks: chunks + rest.chunks,
+                    wordFreqSum: wordFreqSum,
                     wordCount: wordCount,
-                    sylCount: totalSyls,
-                    splitCount: syllables.count + rest.splitCount)
+                    wordCharCount: wordCharCount,
+                    totalFreqSum: totalFreqSum,
+                    segmentCount: segmentCount,
+                    charCount: charCount,
+                    chunkCount: chunks.count + rest.chunkCount)
 
                 if let existing = dp[pos] {
                     if isBetter(candidate, than: existing) {
@@ -1019,25 +1027,25 @@ public class PinyinEngine {
         }
 
         guard let best = dp[0] else { return nil }
-        let avg =
-            best.multiCharCount > 0
-            ? best.multiCharScore / Double(best.multiCharCount) : -1
-        let cov =
-            best.sylCount > 0
-            ? Double(best.multiCharSylCount) / Double(best.sylCount) : 0
-        return DPPathResult(
+        let wordFreqAvg =
+            best.wordCount > 0
+            ? best.wordFreqSum / Double(best.wordCount) : -1
+        let wordCoverage =
+            best.charCount > 0
+            ? Double(best.wordCharCount) / Double(best.charCount) : 0
+        return ConversionResult(
             segments: best.segments,
-            syllables: best.syllables,
+            chunks: best.chunks,
             text: best.segments.map { $0.word }.joined(),
-            avgMultiCharScore: avg,
-            coverage: cov,
-            compositeScore: avg + 4.0 * cov,
-            wordCount: best.wordCount,
-            totalScore: best.totalScore)
+            wordFreqAvg: wordFreqAvg,
+            wordCoverage: wordCoverage,
+            pathScore: wordFreqAvg + 4.0 * wordCoverage,
+            segmentCount: best.segmentCount,
+            totalFreqSum: best.totalFreqSum)
     }
 
     private func unifiedCompose(_ input: String, store: DictionaryStore?)
-        -> DPPathResult?
+        -> ConversionResult?
     {
         let _ucStart = CFAbsoluteTimeGetCurrent()
         defer {
@@ -1053,7 +1061,8 @@ public class PinyinEngine {
     }
 
     /// 枚举从 pos 开始的所有合法短语：用 DFS 尝试连续音节组合并查词库。
-    /// 每找到一个词库匹配就回调 (word, frequency, syllables, endPos)。
+    /// 每找到一个词库匹配就回调 (word, frequency, chunks, endPos)。
+    /// chunks 是 DFS 切分单元序列（合法音节或裸声母），与输入字符一一对应。
     /// 支持裸声母展开：当位置上的字符是合法声母但不构成完整音节时，
     /// 展开为该声母的所有合法音节，查词库取 top 单字参与评分。
     private static func enumeratePhrases(

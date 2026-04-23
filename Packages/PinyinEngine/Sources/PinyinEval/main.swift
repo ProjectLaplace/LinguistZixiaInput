@@ -63,18 +63,18 @@ func parseCaseFile(_ path: String) -> [EvalCase] {
 
 // MARK: - Formatting
 
-func formatPath(_ result: DPPathResult) -> String {
+func formatPath(_ result: ConversionResult) -> String {
     let segStrs = result.segments.map { seg in
         "\(seg.word)(\(seg.pinyin) f=\(seg.frequency))"
     }
     return segStrs.joined(separator: " + ")
 }
 
-func formatScore(_ result: DPPathResult) -> String {
+func formatScore(_ result: ConversionResult) -> String {
     String(
-        format: "avgMulti=%.1f cov=%.2f composite=%.2f words=%d total=%.1f",
-        result.avgMultiCharScore, result.coverage, result.compositeScore,
-        result.wordCount, result.totalScore)
+        format: "wordFreqAvg=%.1f wordCov=%.2f pathScore=%.2f segs=%d totalFreqSum=%.1f",
+        result.wordFreqAvg, result.wordCoverage, result.pathScore,
+        result.segmentCount, result.totalFreqSum)
 }
 
 // MARK: - Split Evaluation
@@ -82,14 +82,14 @@ func formatScore(_ result: DPPathResult) -> String {
 /// 按指定切分（如 ["jingque", "biaoyi"]）查词库，返回该路径的评分。
 func evaluateSplit(
     _ syllableGroups: [String], store: DictionaryStore
-) -> DPPathResult? {
+) -> ConversionResult? {
     var segments: [(word: String, pinyin: String, frequency: Int)] = []
-    var multiCharScore: Double = 0
-    var multiCharCount = 0
-    var multiCharSylCount = 0
-    var totalScore: Double = 0
+    var wordFreqSum: Double = 0
     var wordCount = 0
-    var sylCount = 0
+    var wordCharCount = 0
+    var totalFreqSum: Double = 0
+    var segmentCount = 0
+    var charCount = 0
 
     for group in syllableGroups {
         let normalized = PinyinEngine.normalizePinyin(group)
@@ -99,41 +99,41 @@ func evaluateSplit(
             for sr in singleResults {
                 segments.append(sr)
                 let ws = log(Double(max(sr.frequency, 1)))
-                totalScore += ws
-                wordCount += 1
-                sylCount += 1
+                totalFreqSum += ws
+                segmentCount += 1
+                charCount += 1
             }
             continue
         }
 
         let frequency = top.frequency
         let word = top.word
-        let wordScore = log(Double(max(frequency, 1)))
-        let isMultiChar = word.count >= 2 && frequency >= 10000
+        let segmentFreq = log(Double(max(frequency, 1)))
+        let isWord = word.count >= 2 && frequency >= 10000
 
         segments.append((word, normalized, frequency))
-        multiCharScore += isMultiChar ? wordScore : 0
-        multiCharCount += isMultiChar ? 1 : 0
-        let trueSylCount = word.count
-        multiCharSylCount += isMultiChar ? trueSylCount : 0
-        totalScore += wordScore
-        let wcc = (!isMultiChar && word.count >= 2) ? word.count : 1
-        wordCount += wcc
-        sylCount += trueSylCount
+        wordFreqSum += isWord ? segmentFreq : 0
+        wordCount += isWord ? 1 : 0
+        let wordChars = word.count
+        wordCharCount += isWord ? wordChars : 0
+        totalFreqSum += segmentFreq
+        let segmentContribution = (!isWord && word.count >= 2) ? word.count : 1
+        segmentCount += segmentContribution
+        charCount += wordChars
     }
 
-    let avg = multiCharCount > 0 ? multiCharScore / Double(multiCharCount) : -1
-    let cov = sylCount > 0 ? Double(multiCharSylCount) / Double(sylCount) : 0
-    let composite = avg + 4.0 * cov
+    let wordFreqAvg = wordCount > 0 ? wordFreqSum / Double(wordCount) : -1
+    let wordCoverage = charCount > 0 ? Double(wordCharCount) / Double(charCount) : 0
+    let pathScore = wordFreqAvg + 4.0 * wordCoverage
 
-    return DPPathResult(
+    return ConversionResult(
         segments: segments,
         text: segments.map { $0.word }.joined(),
-        avgMultiCharScore: avg,
-        coverage: cov,
-        compositeScore: composite,
-        wordCount: wordCount,
-        totalScore: totalScore)
+        wordFreqAvg: wordFreqAvg,
+        wordCoverage: wordCoverage,
+        pathScore: pathScore,
+        segmentCount: segmentCount,
+        totalFreqSum: totalFreqSum)
 }
 
 func evaluateSingleChars(
@@ -154,40 +154,40 @@ func evaluateSingleChars(
 // MARK: - Evaluation
 
 func evaluate(_ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?) -> Bool {
-    let dpResult = PinyinEngine.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
-    let dpText = dpResult?.text ?? ""
+    let convResult = PinyinEngine.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
+    let actualText = convResult?.text ?? ""
 
     // 判定
-    if dpText == evalCase.expectedOutput {
+    if actualText == evalCase.expectedOutput {
         // 绿色：完美匹配
-        print("\(Color.green)●\(Color.reset) \(evalCase.rawPinyin) → \(dpText)")
+        print("\(Color.green)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText)")
         print()
         return true
-    } else if let reasonable = evalCase.reasonableOutput, dpText == reasonable {
+    } else if let reasonable = evalCase.reasonableOutput, actualText == reasonable {
         // 橙色：合理匹配
         print(
-            "\(Color.orange)●\(Color.reset) \(evalCase.rawPinyin) → \(dpText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
+            "\(Color.orange)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
         )
         print()
         return true
     } else {
         // 红色：不匹配，展开明细
         print(
-            "\(Color.red)●\(Color.reset) \(evalCase.rawPinyin) → \(dpText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
+            "\(Color.red)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
         )
-        printDetail(evalCase: evalCase, dpResult: dpResult, store: store)
+        printDetail(evalCase: evalCase, convResult: convResult, store: store)
         print()
         return false
     }
 }
 
-func printDetail(evalCase: EvalCase, dpResult: DPPathResult?, store: DictionaryStore) {
-    // DP 实际路径
-    if let dp = dpResult {
-        print("  \(Color.red)actual:\(Color.reset)   \(formatPath(dp))")
-        print("           \(formatScore(dp))")
+func printDetail(evalCase: EvalCase, convResult: ConversionResult?, store: DictionaryStore) {
+    // Conversion 实际路径
+    if let conv = convResult {
+        print("  \(Color.red)actual:\(Color.reset)   \(formatPath(conv))")
+        print("           \(formatScore(conv))")
     } else {
-        print("  \(Color.red)actual:\(Color.reset)   (no DP result)")
+        print("  \(Color.red)actual:\(Color.reset)   (no Conversion result)")
     }
 
     // 按指定切分查词库的评分
@@ -328,10 +328,10 @@ if queryMode {
         }
     }
 
-    // DP 结果
-    if let dpResult = PinyinEngine.compose(pinyin, store: store, pinnedChars: pinnedChars) {
+    // Conversion 结果
+    if let convResult = PinyinEngine.compose(pinyin, store: store, pinnedChars: pinnedChars) {
         print(
-            "\(Color.bold)dp:\(Color.reset)     \(dpResult.text)  \(Color.dim)\(formatPath(dpResult))\(Color.reset)"
+            "\(Color.bold)conv:\(Color.reset)   \(convResult.text)  \(Color.dim)\(formatPath(convResult))\(Color.reset)"
         )
     }
 
