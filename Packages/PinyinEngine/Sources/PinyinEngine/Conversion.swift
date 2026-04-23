@@ -3,7 +3,7 @@ import Foundation
 /// Conversion 路径诊断结果：一条切分路径的完整评分明细。
 ///
 /// 术语参见 Conversion.md。chunk = DFS 切分单元（合法音节或裸声母），
-/// segment = 路径段（对应一次词库命中），word = ≥2 字且 freq ≥ 10000 的词库条目。
+/// segment = 路径段（对应一次词库命中），word = ≥2 字且 freq ≥ `ScoringConfig.wordFreqThreshold` 的词库条目。
 public struct ConversionResult {
     /// 路径段：每段对应一次词库命中的 (word, pinyin, freq) 三元组
     public let segments: [(word: String, pinyin: String, frequency: Int)]
@@ -15,7 +15,7 @@ public struct ConversionResult {
     public let wordFreqAvg: Double
     /// 词覆盖率（被词覆盖的字数 / 总字数）
     public let wordCoverage: Double
-    /// pathScore = wordFreqAvg + 4 * wordCoverage
+    /// pathScore = wordFreqAvg + `ScoringConfig.coverageWeight` * wordCoverage
     public let pathScore: Double
     /// 路径段总数（含反作弊：低频多字词段按 word.count 计入）
     public let segmentCount: Int
@@ -43,6 +43,24 @@ public struct ConversionResult {
     }
 }
 
+/// Conversion 评分参数。控制 pathScore 公式与 strict word 判定阈值。
+///
+/// - `coverageWeight`：pathScore = wordFreqAvg + coverageWeight · wordCoverage 中的 α。
+/// - `wordFreqThreshold`：`count ≥ 2 且 freq ≥ threshold` 的段被视为 strict word，计入
+///   `wordFreqSum`/`wordCount`/`wordCharCount`。阈值下的多字词段落入反作弊路径
+///   （segmentCount 按 word.count 计）。
+public struct ScoringConfig {
+    public var coverageWeight: Double
+    public var wordFreqThreshold: Int
+
+    public init(coverageWeight: Double = 4.0, wordFreqThreshold: Int = 10000) {
+        self.coverageWeight = coverageWeight
+        self.wordFreqThreshold = wordFreqThreshold
+    }
+
+    public static let `default` = ScoringConfig()
+}
+
 /// Conversion 模块：把罗马化拼音/罗马字通过切分 + 词库 + 评分转换为最优汉字路径。
 ///
 /// 详细设计与术语定义参见 Conversion.md。
@@ -56,7 +74,8 @@ public enum Conversion {
     ///   两阶段法: split→["jian","cha","yi","xian","e"] → 检查仪限额
     ///   Conversion:  检查(580k)+一下(501k)+呢(高频) >> 检查仪(4k)+限额(138k)
     public static func compose(
-        _ input: String, store: DictionaryStore, pinnedChars: PinnedCharStore? = nil
+        _ input: String, store: DictionaryStore, pinnedChars: PinnedCharStore? = nil,
+        config: ScoringConfig = .default
     ) -> ConversionResult? {
         let chars = Array(input)
         let n = chars.count
@@ -64,7 +83,7 @@ public enum Conversion {
 
         // DP: dp[pos] = 从 pos 开始到末尾的最优状态
         var dp: [State?] = Array(repeating: nil, count: n + 1)
-        dp[n] = State.empty
+        dp[n] = State.empty(config: config)
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
@@ -74,7 +93,7 @@ public enum Conversion {
 
                 // 把新段 prepend 到 rest 上（从右往左 DP 的自然顺序）
                 let candidate = State.segment(
-                    word: word, frequency: frequency, chunks: chunks
+                    word: word, frequency: frequency, chunks: chunks, config: config
                 ).concat(rest)
 
                 if let existing = dp[pos] {
@@ -97,16 +116,18 @@ public enum Conversion {
     ///
     /// 例：`["jingque", "biaoyi"]` → 精确(jingque) + 表姨(biaoyi)（后者若词库无则按 biao+yi 单字）
     public static func scoreSplit(
-        _ groups: [String], store: DictionaryStore
+        _ groups: [String], store: DictionaryStore, config: ScoringConfig = .default
     ) -> ConversionResult? {
-        var acc = State.empty
+        var acc = State.empty(config: config)
 
         for group in groups {
             let normalized = PinyinEngine.normalizePinyin(group)
 
             if let top = store.topCandidate(for: normalized) {
                 acc = acc.concat(
-                    .segment(word: top.word, frequency: top.frequency, chunks: [normalized]))
+                    .segment(
+                        word: top.word, frequency: top.frequency, chunks: [normalized],
+                        config: config))
                 continue
             }
 
@@ -118,7 +139,9 @@ public enum Conversion {
             for syl in syllables {
                 if let top = store.topCandidate(for: syl) {
                     acc = acc.concat(
-                        .segment(word: top.word, frequency: top.frequency, chunks: [syl]))
+                        .segment(
+                            word: top.word, frequency: top.frequency, chunks: [syl],
+                            config: config))
                     matched = true
                 }
             }
@@ -131,7 +154,7 @@ public enum Conversion {
     // MARK: - 内部状态
 
     /// Conversion 累积状态：对应 ConversionResult 的可变版本，支持组合。
-    /// 通过 `segment(word:frequency:chunks:)` 构造单段状态，通过 `concat(_:)` 拼接。
+    /// 通过 `segment(word:frequency:chunks:config:)` 构造单段状态，通过 `concat(_:)` 拼接。
     fileprivate struct State {
         var segments: [(word: String, pinyin: String, frequency: Int)]
         var chunks: [String]
@@ -142,20 +165,24 @@ public enum Conversion {
         var segmentCount: Int
         var charCount: Int
         var chunkCount: Int
+        var config: ScoringConfig
 
-        static let empty = State(
-            segments: [], chunks: [],
-            wordFreqSum: 0, wordCount: 0, wordCharCount: 0,
-            totalFreqSum: 0, segmentCount: 0, charCount: 0, chunkCount: 0)
+        static func empty(config: ScoringConfig) -> State {
+            State(
+                segments: [], chunks: [],
+                wordFreqSum: 0, wordCount: 0, wordCharCount: 0,
+                totalFreqSum: 0, segmentCount: 0, charCount: 0, chunkCount: 0,
+                config: config)
+        }
 
         /// 构造单段状态：一个 (word, freq, chunks) 对应的独立累积。
         static func segment(
-            word: String, frequency: Int, chunks: [String]
+            word: String, frequency: Int, chunks: [String], config: ScoringConfig
         ) -> State {
             let segmentFreq = log(Double(max(frequency, 1)))
-            // 低频多字词（freq < 10000）视为噪声，不计入词段评分和覆盖率。
+            // 低频多字词（freq < wordFreqThreshold）视为噪声，不计入词段评分和覆盖率。
             // 例如「的脚」(5555) 不应作为词段提升 wordCoverage
-            let isWord = word.count >= 2 && frequency >= 10000
+            let isWord = word.count >= 2 && frequency >= config.wordFreqThreshold
             let wordChars = word.count
             // 反作弊：低频多字词按字数计入段数，避免垃圾词通过"减少段数"获益（段数是次键）
             let segmentContribution = (!isWord && word.count >= 2) ? word.count : 1
@@ -169,11 +196,12 @@ public enum Conversion {
                 totalFreqSum: segmentFreq,
                 segmentCount: segmentContribution,
                 charCount: wordChars,
-                chunkCount: chunks.count)
+                chunkCount: chunks.count,
+                config: config)
         }
 
         /// 把 self（前段）与 other（后段）拼接：segments 与 chunks 按顺序连接，
-        /// 其它标量字段按加法累积。
+        /// 其它标量字段按加法累积。config 继承 self（DP 过程中两侧 config 相同）。
         func concat(_ other: State) -> State {
             State(
                 segments: segments + other.segments,
@@ -184,14 +212,15 @@ public enum Conversion {
                 totalFreqSum: totalFreqSum + other.totalFreqSum,
                 segmentCount: segmentCount + other.segmentCount,
                 charCount: charCount + other.charCount,
-                chunkCount: chunkCount + other.chunkCount)
+                chunkCount: chunkCount + other.chunkCount,
+                config: config)
         }
 
-        /// 主键评分 pathScore = wordFreqAvg + 4 · wordCoverage
+        /// 主键评分 pathScore = wordFreqAvg + coverageWeight · wordCoverage
         var pathScore: Double {
             let wordFreqAvg = wordCount > 0 ? wordFreqSum / Double(wordCount) : -1
             let wordCoverage = charCount > 0 ? Double(wordCharCount) / Double(charCount) : 0
-            return wordFreqAvg + 4.0 * wordCoverage
+            return wordFreqAvg + config.coverageWeight * wordCoverage
         }
 
         /// 路径比较顺序（参见 Conversion.md "比较顺序"）：
@@ -222,7 +251,7 @@ public enum Conversion {
                 text: segments.map { $0.word }.joined(),
                 wordFreqAvg: wordFreqAvg,
                 wordCoverage: wordCoverage,
-                pathScore: wordFreqAvg + 4.0 * wordCoverage,
+                pathScore: wordFreqAvg + config.coverageWeight * wordCoverage,
                 segmentCount: segmentCount,
                 totalFreqSum: totalFreqSum)
         }

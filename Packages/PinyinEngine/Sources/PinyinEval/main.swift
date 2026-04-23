@@ -102,7 +102,8 @@ func convResultToDict(_ r: ConversionResult?) -> Any {
 }
 
 func printCaseJSON(
-    evalCase: EvalCase, actual: ConversionResult?, split: ConversionResult?, status: String
+    evalCase: EvalCase, actual: ConversionResult?, split: ConversionResult?, status: String,
+    config: ScoringConfig
 ) {
     let dict: [String: Any] = [
         "pinyin": evalCase.rawPinyin,
@@ -113,6 +114,10 @@ func printCaseJSON(
         "status": status,
         "actual": convResultToDict(actual),
         "split": convResultToDict(split),
+        "config": [
+            "coverageWeight": config.coverageWeight,
+            "wordFreqThreshold": config.wordFreqThreshold,
+        ],
     ]
     guard
         let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
@@ -124,10 +129,12 @@ func printCaseJSON(
 // MARK: - Evaluation
 
 func evaluate(
-    _ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?, jsonMode: Bool
+    _ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?,
+    config: ScoringConfig, jsonMode: Bool
 ) -> Bool {
-    let convResult = Conversion.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
-    let splitResult = Conversion.scoreSplit(evalCase.expectedSplit, store: store)
+    let convResult = Conversion.compose(
+        evalCase.rawPinyin, store: store, pinnedChars: pinnedChars, config: config)
+    let splitResult = Conversion.scoreSplit(evalCase.expectedSplit, store: store, config: config)
     let actualText = convResult?.text ?? ""
 
     // 判定
@@ -145,7 +152,9 @@ func evaluate(
     }
 
     if jsonMode {
-        printCaseJSON(evalCase: evalCase, actual: convResult, split: splitResult, status: status)
+        printCaseJSON(
+            evalCase: evalCase, actual: convResult, split: splitResult, status: status,
+            config: config)
         return passed
     }
 
@@ -248,7 +257,9 @@ func findPinnedChars() -> PinnedCharStore? {
 let args = CommandLine.arguments
 
 if args.count < 2 {
-    fputs("Usage: pinyin-eval [--json] <cases-file> [--dict <path>]\n", stderr)
+    fputs(
+        "Usage: pinyin-eval [--json] [--alpha N] [--word-threshold N] <cases-file> [--dict <path>]\n",
+        stderr)
     fputs("       pinyin-eval [--json] \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
     fputs("       pinyin-eval -q <pinyin>\n", stderr)
     exit(1)
@@ -259,6 +270,8 @@ var dictPath: String?
 var inputArg: String?
 var queryMode = false
 var jsonMode = false
+var coverageWeight: Double = 4.0
+var wordFreqThreshold: Int = 10000
 var i = 1
 while i < args.count {
     if args[i] == "--dict" && i + 1 < args.count {
@@ -270,6 +283,20 @@ while i < args.count {
     } else if args[i] == "--json" {
         jsonMode = true
         i += 1
+    } else if args[i] == "--alpha" && i + 1 < args.count {
+        guard let v = Double(args[i + 1]) else {
+            fputs("Error: --alpha expects a number, got '\(args[i + 1])'\n", stderr)
+            exit(1)
+        }
+        coverageWeight = v
+        i += 2
+    } else if args[i] == "--word-threshold" && i + 1 < args.count {
+        guard let v = Int(args[i + 1]) else {
+            fputs("Error: --word-threshold expects an integer, got '\(args[i + 1])'\n", stderr)
+            exit(1)
+        }
+        wordFreqThreshold = v
+        i += 2
     } else if inputArg == nil {
         inputArg = args[i]
         i += 1
@@ -278,8 +305,13 @@ while i < args.count {
     }
 }
 
+let scoringConfig = ScoringConfig(
+    coverageWeight: coverageWeight, wordFreqThreshold: wordFreqThreshold)
+
 guard let input = inputArg else {
-    fputs("Usage: pinyin-eval [--json] <cases-file> [--dict <path>]\n", stderr)
+    fputs(
+        "Usage: pinyin-eval [--json] [--alpha N] [--word-threshold N] <cases-file> [--dict <path>]\n",
+        stderr)
     exit(1)
 }
 
@@ -318,7 +350,9 @@ if queryMode {
     }
 
     // Conversion 结果
-    if let convResult = Conversion.compose(pinyin, store: store, pinnedChars: pinnedChars) {
+    if let convResult = Conversion.compose(
+        pinyin, store: store, pinnedChars: pinnedChars, config: scoringConfig)
+    {
         print(
             "\(Color.bold)conv:\(Color.reset)   \(convResult.text)  \(Color.dim)\(formatPath(convResult))\(Color.reset)"
         )
@@ -354,7 +388,7 @@ if FileManager.default.fileExists(atPath: input) {
 var passed = 0
 var failed = 0
 for c in cases {
-    if evaluate(c, store: store, pinnedChars: pinnedChars, jsonMode: jsonMode) {
+    if evaluate(c, store: store, pinnedChars: pinnedChars, config: scoringConfig, jsonMode: jsonMode) {
         passed += 1
     } else {
         failed += 1
