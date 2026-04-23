@@ -81,38 +81,94 @@ func formatScore(_ result: ConversionResult) -> String {
 // 按指定切分查词库评分使用 Conversion.scoreSplit（PinyinEngine 模块）。
 // eval 工具不再维护独立的评分累加实现。
 
+// MARK: - JSON Output
+
+/// 把 ConversionResult 序列化为可喂给 JSONSerialization 的字典；nil → NSNull。
+func convResultToDict(_ r: ConversionResult?) -> Any {
+    guard let r = r else { return NSNull() }
+    let segs: [[String: Any]] = r.segments.map { seg in
+        ["word": seg.word, "pinyin": seg.pinyin, "frequency": seg.frequency]
+    }
+    return [
+        "text": r.text,
+        "segments": segs,
+        "chunks": r.chunks,
+        "wordFreqAvg": r.wordFreqAvg,
+        "wordCoverage": r.wordCoverage,
+        "pathScore": r.pathScore,
+        "segmentCount": r.segmentCount,
+        "totalFreqSum": r.totalFreqSum,
+    ]
+}
+
+func printCaseJSON(
+    evalCase: EvalCase, actual: ConversionResult?, split: ConversionResult?, status: String
+) {
+    let dict: [String: Any] = [
+        "pinyin": evalCase.rawPinyin,
+        "expectedSplit": evalCase.expectedSplit,
+        "expected": evalCase.expectedOutput,
+        "reasonable": evalCase.reasonableOutput as Any? ?? NSNull(),
+        "line": evalCase.lineNumber,
+        "status": status,
+        "actual": convResultToDict(actual),
+        "split": convResultToDict(split),
+    ]
+    guard
+        let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+        let str = String(data: data, encoding: .utf8)
+    else { return }
+    print(str)
+}
+
 // MARK: - Evaluation
 
-func evaluate(_ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?) -> Bool {
+func evaluate(
+    _ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?, jsonMode: Bool
+) -> Bool {
     let convResult = Conversion.compose(evalCase.rawPinyin, store: store, pinnedChars: pinnedChars)
+    let splitResult = Conversion.scoreSplit(evalCase.expectedSplit, store: store)
     let actualText = convResult?.text ?? ""
 
     // 判定
+    let status: String
+    let passed: Bool
     if actualText == evalCase.expectedOutput {
-        // 绿色：完美匹配
-        print("\(Color.green)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText)")
-        print()
-        return true
+        status = "pass"
+        passed = true
     } else if let reasonable = evalCase.reasonableOutput, actualText == reasonable {
-        // 橙色：合理匹配
+        status = "reasonable"
+        passed = true
+    } else {
+        status = "fail"
+        passed = false
+    }
+
+    if jsonMode {
+        printCaseJSON(evalCase: evalCase, actual: convResult, split: splitResult, status: status)
+        return passed
+    }
+
+    switch status {
+    case "pass":
+        print("\(Color.green)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText)")
+    case "reasonable":
         print(
             "\(Color.orange)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
         )
-        print()
-        return true
-    } else {
-        // 红色：不匹配，展开明细
+    default:
         print(
             "\(Color.red)●\(Color.reset) \(evalCase.rawPinyin) → \(actualText) \(Color.dim)(expected: \(evalCase.expectedOutput))\(Color.reset)"
         )
-        printDetail(evalCase: evalCase, convResult: convResult, store: store)
-        print()
-        return false
+        printDetail(evalCase: evalCase, convResult: convResult, splitResult: splitResult)
     }
+    print()
+    return passed
 }
 
-func printDetail(evalCase: EvalCase, convResult: ConversionResult?, store: DictionaryStore) {
-    // Conversion 实际路径
+func printDetail(
+    evalCase: EvalCase, convResult: ConversionResult?, splitResult: ConversionResult?
+) {
     if let conv = convResult {
         print("  \(Color.red)actual:\(Color.reset)   \(formatPath(conv))")
         print("           \(formatScore(conv))")
@@ -120,11 +176,10 @@ func printDetail(evalCase: EvalCase, convResult: ConversionResult?, store: Dicti
         print("  \(Color.red)actual:\(Color.reset)   (no Conversion result)")
     }
 
-    // 按指定切分查词库的评分
     let splitLabel = evalCase.expectedSplit.joined(separator: "|")
-    if let splitResult = Conversion.scoreSplit(evalCase.expectedSplit, store: store) {
-        print("  \(Color.green)split:\(Color.reset)    \(splitLabel) → \(formatPath(splitResult))")
-        print("           \(formatScore(splitResult))")
+    if let split = splitResult {
+        print("  \(Color.green)split:\(Color.reset)    \(splitLabel) → \(formatPath(split))")
+        print("           \(formatScore(split))")
     } else {
         print("  \(Color.green)split:\(Color.reset)    \(splitLabel) → (no dictionary match)")
     }
@@ -193,8 +248,8 @@ func findPinnedChars() -> PinnedCharStore? {
 let args = CommandLine.arguments
 
 if args.count < 2 {
-    fputs("Usage: pinyin-eval <cases-file> [--dict <path>]\n", stderr)
-    fputs("       pinyin-eval \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
+    fputs("Usage: pinyin-eval [--json] <cases-file> [--dict <path>]\n", stderr)
+    fputs("       pinyin-eval [--json] \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
     fputs("       pinyin-eval -q <pinyin>\n", stderr)
     exit(1)
 }
@@ -203,6 +258,7 @@ if args.count < 2 {
 var dictPath: String?
 var inputArg: String?
 var queryMode = false
+var jsonMode = false
 var i = 1
 while i < args.count {
     if args[i] == "--dict" && i + 1 < args.count {
@@ -210,6 +266,9 @@ while i < args.count {
         i += 2
     } else if args[i] == "-q" || args[i] == "--query" {
         queryMode = true
+        i += 1
+    } else if args[i] == "--json" {
+        jsonMode = true
         i += 1
     } else if inputArg == nil {
         inputArg = args[i]
@@ -220,7 +279,7 @@ while i < args.count {
 }
 
 guard let input = inputArg else {
-    fputs("Usage: pinyin-eval <cases-file> [--dict <path>]\n", stderr)
+    fputs("Usage: pinyin-eval [--json] <cases-file> [--dict <path>]\n", stderr)
     exit(1)
 }
 
@@ -295,15 +354,15 @@ if FileManager.default.fileExists(atPath: input) {
 var passed = 0
 var failed = 0
 for c in cases {
-    if evaluate(c, store: store, pinnedChars: pinnedChars) {
+    if evaluate(c, store: store, pinnedChars: pinnedChars, jsonMode: jsonMode) {
         passed += 1
     } else {
         failed += 1
     }
 }
 
-// 汇总
-if cases.count > 1 {
+// 汇总（JSON 模式下保持 NDJSON 干净，跳过汇总行）
+if cases.count > 1 && !jsonMode {
     print()
     let summary =
         failed > 0
