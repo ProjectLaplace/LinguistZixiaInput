@@ -10,7 +10,7 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install clean test dict dict-release dicts-all release dist format eval query list-user-words reset-user-words
+.PHONY: build install clean test dict dict-release dicts-all eval-dicts release dist format eval query list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -67,6 +67,11 @@ dicts/zh_dict_ice_%.db:
 
 dicts/zh_dict_frost_%.db:
 	python3 tools/build_dict_db.py preset $* --source frost -o $@
+
+# ── 跨词库对比 ────────────────────────────────────────────────────────
+# 对 shipped 词库 + dicts/ 下所有 .db 跑 pinyin-eval，输出通过率表 + case 矩阵。
+eval-dicts: $(DICT_DB) $(ALT_DICTS)
+	python3 tools/eval_dicts.py $(DICT_DB) $(ALT_DICTS)
 
 format:
 	swift-format format -i -r Packages/PinyinEngine/Sources Packages/PinyinEngine/Tests Apps/LaplaceIME/LaplaceIME
