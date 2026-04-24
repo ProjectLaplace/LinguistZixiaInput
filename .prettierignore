@@ -1,0 +1,11 @@
+# Submodules（第三方词库/源码）
+rime-ice/
+rime-frost/
+
+# 旧输入法参考资料
+unispim/
+紫光拼音输入法/
+
+# 构建产物
+.build/
+build/

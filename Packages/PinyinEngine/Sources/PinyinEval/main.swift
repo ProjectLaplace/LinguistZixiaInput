@@ -429,7 +429,9 @@ if FileManager.default.fileExists(atPath: input) {
 var passed = 0
 var failed = 0
 for c in cases {
-    if evaluate(c, store: store, pinnedChars: pinnedChars, config: scoringConfig, jsonMode: jsonMode) {
+    if evaluate(
+        c, store: store, pinnedChars: pinnedChars, config: scoringConfig, jsonMode: jsonMode)
+    {
         passed += 1
     } else {
         failed += 1

@@ -152,22 +152,22 @@ wordCoverage = wordCharCount / charCount    (charCount > 0)
 
 ## 术语改名对照
 
-| 现名                | 新名             | 变化                     |
-| ------------------- | ---------------- | ------------------------ |
-| avgMulti            | wordFreqAvg      | 重命名                   |
-| compositeScore      | pathScore        | 重命名                   |
-| totalScore          | totalFreqSum     | 重命名                   |
-| sylCount            | charCount        | 重命名                   |
-| multiCharScore      | wordFreqSum      | 重命名                   |
-| multiCharCount      | **wordCount**    | 重命名（语义保持）       |
-| multiCharSylCount   | wordCharCount    | 重命名                   |
-| **wordCount**（现） | segmentCount     | 重命名 + 建议剥离反作弊  |
-| coverage            | wordCoverage     | 重命名（明确"词的覆盖"） |
-| splitCount          | chunkCount       | 重命名（反映实际含义）   |
+| 现名                | 新名             | 变化                             |
+| ------------------- | ---------------- | -------------------------------- |
+| avgMulti            | wordFreqAvg      | 重命名                           |
+| compositeScore      | pathScore        | 重命名                           |
+| totalScore          | totalFreqSum     | 重命名                           |
+| sylCount            | charCount        | 重命名                           |
+| multiCharScore      | wordFreqSum      | 重命名                           |
+| multiCharCount      | **wordCount**    | 重命名（语义保持）               |
+| multiCharSylCount   | wordCharCount    | 重命名                           |
+| **wordCount**（现） | segmentCount     | 重命名 + 建议剥离反作弊          |
+| coverage            | wordCoverage     | 重命名（明确"词的覆盖"）         |
+| splitCount          | chunkCount       | 重命名（反映实际含义）           |
 | syllables (DPState) | chunks           | 重命名（内含裸声母，非严格音节） |
-| freq                | freq             | 不变                     |
-| —（新）             | singleCharCount  | 新增推算量               |
-| —（新）             | noiseWordPenalty | 新增（若采方案 B）       |
+| freq                | freq             | 不变                             |
+| —（新）             | singleCharCount  | 新增推算量                       |
+| —（新）             | noiseWordPenalty | 新增（若采方案 B）               |
 
 ### 命名体系总则
 

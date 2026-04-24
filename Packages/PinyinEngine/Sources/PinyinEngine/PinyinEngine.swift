@@ -251,11 +251,13 @@ public class PinyinEngine {
         let hex = bytes.map { String(format: "%02x", $0) }.joined()
         let i = hex.startIndex
         func o(_ n: Int) -> String.Index { hex.index(i, offsetBy: n) }
-        return "\(hex[i..<o(8)])-\(hex[o(8)..<o(12)])-\(hex[o(12)..<o(16)])-\(hex[o(16)..<o(20)])-\(hex[o(20)..<o(32)])"
+        return
+            "\(hex[i..<o(8)])-\(hex[o(8)..<o(12)])-\(hex[o(12)..<o(16)])-\(hex[o(16)..<o(20)])-\(hex[o(20)..<o(32)])"
     }
 
     private static func vCommandPassword(length: Int) -> String {
-        let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*-_=+")
+        let chars = Array(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*-_=+")
         return String((0..<length).map { _ in chars[Int.random(in: 0..<chars.count)] })
     }
 

@@ -26,7 +26,7 @@ let package = Package(
                 .process("Resources")
             ],
             plugins: [
-                .plugin(name: "BuildInfoPlugin"),
+                .plugin(name: "BuildInfoPlugin")
             ]),
         .executableTarget(
             name: "PinyinEval",

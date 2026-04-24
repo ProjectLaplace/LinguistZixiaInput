@@ -26,7 +26,7 @@ struct BuildInfoPlugin: BuildToolPlugin {
                     """,
                 ],
                 outputFilesDirectory: context.pluginWorkDirectory
-            ),
+            )
         ]
     }
 }
