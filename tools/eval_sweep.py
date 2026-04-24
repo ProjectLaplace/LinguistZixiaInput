@@ -5,7 +5,7 @@
 聚合每个 case 的结果，输出 markdown 报告：
 
   - 参数网格下的通过率矩阵
-  - 最佳配置及相对 baseline（coverageWeight=4, wordNoiseFloor=10000）的差异
+  - 最佳配置及相对 baseline（coverageWeight=3, wordNoiseFloor=5000）的差异
   - 每个最佳配置相对 baseline 的 newly-pass / newly-fail case 列表
 
 评分的唯一事实来源是 Swift 引擎——本工具只负责编排 run、聚合 NDJSON。
@@ -24,8 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASELINE_COVERAGE_WEIGHT = 4.0
-BASELINE_WORD_NOISE_FLOOR = 10000
+BASELINE_COVERAGE_WEIGHT = 3.0
+BASELINE_WORD_NOISE_FLOOR = 5000
 
 
 def find_project_root() -> Path:

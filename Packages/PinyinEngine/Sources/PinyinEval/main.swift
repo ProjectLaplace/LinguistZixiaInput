@@ -270,8 +270,8 @@ var dictPath: String?
 var inputArg: String?
 var queryMode = false
 var jsonMode = false
-var coverageWeight: Double = 4.0
-var wordNoiseFloor: Int = 10000
+var coverageWeight: Double = 3.0
+var wordNoiseFloor: Int = 5000
 var i = 1
 while i < args.count {
     if args[i] == "--dict" && i + 1 < args.count {

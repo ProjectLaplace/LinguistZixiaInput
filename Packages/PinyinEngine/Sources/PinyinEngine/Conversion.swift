@@ -53,7 +53,7 @@ public struct ScoringConfig {
     public var coverageWeight: Double
     public var wordNoiseFloor: Int
 
-    public init(coverageWeight: Double = 4.0, wordNoiseFloor: Int = 10000) {
+    public init(coverageWeight: Double = 3.0, wordNoiseFloor: Int = 5000) {
         self.coverageWeight = coverageWeight
         self.wordNoiseFloor = wordNoiseFloor
     }
@@ -185,7 +185,7 @@ public enum Conversion {
         ) -> State {
             let segmentFreq = log(Double(max(frequency, 1)))
             // 低频多字词（freq < wordNoiseFloor）视为词典噪声，不计入词段评分和覆盖率。
-            // 例如「的脚」(5555) 不应作为词段提升 wordCoverage
+            // 例如 rime-ice 里那些 freq 只有数百的边缘多字条目，不应提升 wordCoverage。
             let isWord = word.count >= 2 && frequency >= config.wordNoiseFloor
             let wordChars = word.count
             // 反作弊：低频多字词按字数计入段数，避免垃圾词通过"减少段数"获益（段数是次键）
@@ -237,9 +237,13 @@ public enum Conversion {
         ///     哪怕 freq 低于 wordNoiseFloor。救「心流+状态」vs「新+流+状态」这类 tie。）
         /// 末键：totalFreqSum 越大越好（历史保留；在加入 softWordCharCount 后很少再起作用）
         ///
-        /// coverageWeight=4 的直觉：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。
-        /// 让高质量多字词（log=13）能压过低质量全覆盖（avg=9），
-        /// 同时同质量下全覆盖（精确+匹配）胜过有单字填充的（景区+饿+匹配）。
+        /// 当前默认 coverageWeight=3、wordNoiseFloor=5000 是 tools/eval_sweep.py 在 28 个
+        /// fixture case 上扫出来的零回归最优点。
+        ///
+        /// 历史：原始设计 coverageWeight=4、wordNoiseFloor=10000 来自启发式直觉——
+        /// "wordCoverage 从 0.8→1.0（+0.2）约等于 wordFreqAvg 提升 0.8"，由此解 4。
+        /// 目的是让高质量多字词（log=13）能压过低质量全覆盖（avg=9），同时同质量下全覆盖
+        /// （精确+匹配）胜过有单字填充的（景区+饿+匹配）。保留作设计参考。
         func isBetter(than other: State) -> Bool {
             let aScore = pathScore
             let bScore = other.pathScore

@@ -321,7 +321,8 @@ final class PinyinEngineTests: XCTestCase {
 
     func testConversionLowFreqMultiCharNotCountedAsCoverage() {
         // "shenmetamadejiaojingxi" — 的脚(dejiao, freq=5555) is a dictionary artifact
-        // It should NOT boost wordCoverage because freq < 10000 threshold
+        // It should not win the path over 叫 (jiao as a single char), regardless of
+        // whether 的脚 happens to clear the wordNoiseFloor under the current config.
         // So the result should use 叫 (jiao alone) not 脚 (via 的脚 compound)
         let state = type("shenmetamadejiaojingxi")
         let first = state.candidates.first ?? ""
