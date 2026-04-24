@@ -91,6 +91,25 @@ public struct ScoringConfig {
 /// 详细设计与术语定义参见 Conversion.md。
 public enum Conversion {
 
+    // MARK: - 功能性单字白名单
+
+    /// 功能性单字白名单：这些单字以单字形式出现时视为合法的语言成分，
+    /// 不计入 `State.singleCharCount` 惩罚。覆盖语气/时态助词、结构助词、
+    /// 代词、常用副词/连词、常用助动词。白名单外的单字仍全额扣分，
+    /// 避免「发/子/霞」这类 fallback 单字虚高 log(freq) 压过多字词路径。
+    fileprivate static let functionalSingleChars: Set<String> = [
+        // 语气/时态助词
+        "吧", "啊", "呢", "吗", "嘛", "哦", "哈", "呀",
+        // 结构助词
+        "的", "了", "着", "过", "得", "地",
+        // 代词
+        "我", "你", "他", "她", "它", "咱", "您",
+        // 副词/连词
+        "也", "都", "就", "还", "只", "才", "再",
+        // 常用动词/助动词
+        "是", "有", "在",
+    ]
+
     // MARK: - 公开入口
 
     /// 主入口：对原始拼音串执行 Conversion 搜索，返回最优路径。
@@ -199,9 +218,11 @@ public enum Conversion {
         /// syllableCharCount 在 DP 每个 cell 内恒等于剩余输入长度，因此 avgSyllableLength
         /// 的变化完全来自 chunkCount——等价于把"chunk 数"的偏好从次键提升到主键。
         var syllableCharCount: Int
-        /// 单字段数（word.count == 1）。pathScore 减 `singleCharPenalty × singleCharCount`：
-        /// 单字 log(freq) 通常远高于多字词（「的」「发」等高频单字），会虚高 pathScore；
-        /// 用结构性代价压制这种虚高。
+        /// 单字段数（word.count == 1 且不在 `functionalSingleChars` 白名单内）。
+        /// pathScore 减 `singleCharPenalty × singleCharCount`：非白名单单字
+        /// log(freq) 通常远高于多字词（「发」freq=3.9M 等 fallback 单字），会虚高
+        /// pathScore；用结构性代价压制。白名单内的单字（助词、代词、常用副词等）
+        /// 豁免，避免误伤「没关系+吧」「我+注意到」这类合法的功能性单字组合。
         var singleCharCount: Int
         var config: ScoringConfig
 
@@ -239,7 +260,8 @@ public enum Conversion {
                 charCount: wordChars,
                 chunkCount: chunks.count,
                 syllableCharCount: sylChars,
-                singleCharCount: wordChars == 1 ? 1 : 0,
+                singleCharCount: (wordChars == 1
+                    && !Conversion.functionalSingleChars.contains(word)) ? 1 : 0,
                 config: config)
         }
 
