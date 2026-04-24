@@ -230,7 +230,10 @@ def cmd_preset(args):
             print(f"Error: file not found: {f}", file=sys.stderr)
             sys.exit(1)
 
-    output = os.path.join(RESOURCES_DIR, "zh_dict.db")
+    # 默认写到 Resources/zh_dict.db（会被 SwiftPM 打包进 app）；
+    # 用 -o 指定其它路径以并存多个词库供 eval 对比（建议放到 dicts/，被 gitignore）。
+    output = args.output or os.path.join(RESOURCES_DIR, "zh_dict.db")
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     print(f"Building [{preset_name}] from {source['name']}: {preset['description']}")
     build_from_files("rime", input_files, output)
 
@@ -275,6 +278,12 @@ def main():
         choices=SOURCES.keys(),
         default="ice",
         help="Dictionary source (default: ice)",
+    )
+    p_preset.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output .db path (default: Resources/zh_dict.db, the one SwiftPM ships)",
     )
 
     # Explicit file mode

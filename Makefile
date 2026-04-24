@@ -10,7 +10,7 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install clean test dict dict-release release dist format eval query list-user-words reset-user-words
+.PHONY: build install clean test dict dict-release dicts-all release dist format eval query list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -50,6 +50,23 @@ test:
 
 dict:
 	python3 tools/build_dict_db.py fixtures
+
+# ── 备用词库（放在 dicts/，不打包、不进 git，供 eval --dict 对比用）────
+# make dicts-all          全部构建
+# make dicts/zh_dict_frost_full.db   单独构建某一个（pattern rule 推导 source/preset）
+ALT_DICTS = \
+	dicts/zh_dict_ice_default.db \
+	dicts/zh_dict_ice_full.db \
+	dicts/zh_dict_frost_default.db \
+	dicts/zh_dict_frost_full.db
+
+dicts-all: $(ALT_DICTS)
+
+dicts/zh_dict_ice_%.db:
+	python3 tools/build_dict_db.py preset $* --source ice -o $@
+
+dicts/zh_dict_frost_%.db:
+	python3 tools/build_dict_db.py preset $* --source frost -o $@
 
 format:
 	swift-format format -i -r Packages/PinyinEngine/Sources Packages/PinyinEngine/Tests Apps/LaplaceIME/LaplaceIME

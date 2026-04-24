@@ -9,7 +9,12 @@
 首次 build 之前必须跑一次。数据源地址和 preset 详情见脚本开头注释。
 
 ```
+# 默认：构建进 Resources/zh_dict.db（app 打包时带上的那个）
 python3 tools/build_dict_db.py preset default
+
+# 并存另一个词库供 eval 对比：用 -o 指定路径，建议放 dicts/（已 gitignore，SwiftPM 也不会打包）
+python3 tools/build_dict_db.py preset full --source frost -o dicts/zh_dict_frost_full.db
+./Packages/PinyinEngine/.build/debug/pinyin-eval --dict dicts/zh_dict_frost_full.db fixtures/pinyin-strings.cases
 ```
 
 ## `eval_sweep.py`
