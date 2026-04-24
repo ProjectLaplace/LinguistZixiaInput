@@ -10,7 +10,7 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install clean test dict dict-release dicts-all eval-dicts release dist format eval query list-user-words reset-user-words
+.PHONY: build install clean test dict dict-release dicts-all eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
 
 build:
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -72,6 +72,13 @@ dicts/zh_dict_frost_%.db:
 # 对 shipped 词库 + dicts/ 下所有 .db 跑 pinyin-eval，输出通过率表 + case 矩阵。
 eval-dicts: $(DICT_DB) $(ALT_DICTS)
 	python3 tools/eval_dicts.py $(DICT_DB) $(ALT_DICTS)
+
+# ── 组合稳定性分析 ────────────────────────────────────────────────────
+# 针对 shipped 词库跑 tools/eval_stability.py，把多段 case 分类为
+# Composition Bug / Segment Artifact / Stable 等桶。传 DICT=<path> 换词库。
+# 例：make eval-stability DICT=dicts/zh_dict_frost_default.db
+eval-stability: $(DICT_DB)
+	python3 tools/eval_stability.py $(if $(DICT),--dict $(DICT),)
 
 format:
 	swift-format format -i -r Packages/PinyinEngine/Sources Packages/PinyinEngine/Tests Apps/LaplaceIME/LaplaceIME
