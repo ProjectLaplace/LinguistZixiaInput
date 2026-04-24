@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Sweep Conversion scoring parameters to compare pass rates across configs.
+"""扫参对比工具：用不同评分参数跑 pinyin-eval，对比通过率差异。
 
-Runs `pinyin-eval --json` with a grid of --alpha / --word-threshold values,
-aggregates per-case outcomes, and prints a markdown report covering:
+按 `--alpha` / `--word-threshold` 网格批量调用 `pinyin-eval --json`，聚合
+每个 case 的结果，输出 markdown 报告：
 
-  - Pass-rate matrix across the grid
-  - Best config(s) and delta vs baseline (α=4, τ=10000)
-  - Per-case newly-pass / newly-fail lists for top configs
+  - 参数网格下的通过率矩阵
+  - 最佳配置及相对 baseline（α=4, τ=10000）的差异
+  - 每个最佳配置相对 baseline 的 newly-pass / newly-fail case 列表
 
-The Swift engine is the single source of truth for scoring; this tool only
-orchestrates runs and aggregates NDJSON output.
+评分的唯一事实来源是 Swift 引擎——本工具只负责编排 run、聚合 NDJSON。
 
-Usage:
+用法：
     python3 tools/eval_sweep.py fixtures/pinyin-strings.cases
     python3 tools/eval_sweep.py fixtures/pinyin-strings.cases \\
         --alphas 3,4,5,6,8,10 --thresholds 1000,5000,10000
@@ -55,7 +54,7 @@ def run_eval(
         cmd += ["--dict", str(dict_path)]
     cmd.append(str(cases_file))
     proc = subprocess.run(cmd, capture_output=True, text=True)
-    # Exit code >0 means some cases failed — still has JSON on stdout.
+    # 退出码 >0 表示有 case fail，但 stdout 里的 JSON 仍然完整。
     results = []
     for line in proc.stdout.splitlines():
         line = line.strip()
@@ -95,7 +94,7 @@ def main():
     alphas = parse_list(args.alphas, float)
     thresholds = parse_list(args.thresholds, int)
 
-    # configs[(α, τ)] = {pinyin: status}
+    # configs[(α, τ)] = {pinyin: status}——每个参数组合的逐 case 结果
     configs: dict[tuple[float, int], dict[str, str]] = {}
     case_order: list[str] = []
     expected_map: dict[str, str] = {}

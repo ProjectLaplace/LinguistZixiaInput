@@ -115,9 +115,23 @@ class LaplaceInputController: IMKInputController {
             return false
         }
 
-        // 带修饰键的事件（除 Shift 外）不处理，交给系统
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting(.capsLock)
+
+        // 诊断 hotkey：⌃⇧⌘/ 在有活跃组合时把当前拼音 + 候选 + Conversion 写入 glitch 日志。
+        // marker 文件不存在时 engine 自身 no-op，这里不重复判。
+        if modifiers == [.control, .shift, .command],
+            event.charactersIgnoringModifiers == "/",
+            !currentState.items.isEmpty
+        {
+            currentState = engine.process(.logGlitch)
+            if currentState.glitchLogged {
+                Self.indicator.showLogged(near: lastCursorRect)
+            }
+            return true
+        }
+
+        // 带修饰键的事件（除 Shift 外）不处理，交给系统
         if !modifiers.isEmpty && modifiers != .shift {
             return false
         }
@@ -440,6 +454,26 @@ class LaplaceIndicator {
         // 1 秒后隐藏，恢复默认样式
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.panel.orderOut(nil)
+            self?.label.stringValue = "LP"
+            self?.label.textColor = NSColor(white: 0.45, alpha: 1.0)
+            container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
+        }
+    }
+
+    /// Glitch 记录反馈：复用 LP 指示器位置，短暂变绿显示 ● 半秒后恢复。
+    /// 不 hide 面板——用户通常仍在组合中，下一个按键的 show() 会保持面板在位。
+    func showLogged(near cursorRect: NSRect) {
+        let container = panel.contentView!
+        label.stringValue = "●"
+        label.textColor = .white
+        container.layer!.backgroundColor = NSColor.systemGreen.cgColor
+
+        let x = cursorRect.origin.x - 47
+        let y = cursorRect.origin.y - 32
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        panel.orderFront(nil)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.label.stringValue = "LP"
             self?.label.textColor = NSColor(white: 0.45, alpha: 1.0)
             container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor

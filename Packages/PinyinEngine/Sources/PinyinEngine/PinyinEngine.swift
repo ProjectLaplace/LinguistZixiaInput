@@ -51,6 +51,9 @@ public enum EngineEvent {
     case bracket(pickLast: Bool)
     case tab(backward: Bool)
     case punctuation(Character)
+    /// 诊断：记录当前拼音 + 候选 + Conversion 路径到 glitch 日志（marker 启用时）。
+    /// 不改变组合状态，仅触发日志写入与 UI 反馈。
+    case logGlitch
 }
 
 /// 输入模式：中文为默认持久模式，临时模式在提交后自动回退
@@ -71,6 +74,8 @@ public struct EngineState {
     public let mode: InputMode
     /// 当前聚焦的可编辑段索引（在可编辑段中的序号，nil 表示末尾）
     public let focusedSegmentIndex: Int?
+    /// 本轮事件是否触发了 glitch 日志写入（供 UI 显示"已记录"反馈）
+    public let glitchLogged: Bool
 
     /// 组合缓冲区的完整拼接字符串（用于 UI 调试）
     public var fullDisplayBuffer: String {
@@ -80,7 +85,7 @@ public struct EngineState {
     /// 初始空闲状态
     public static let idle = EngineState(
         items: [], candidates: [], committedText: nil, mode: .pinyin,
-        focusedSegmentIndex: nil)
+        focusedSegmentIndex: nil, glitchLogged: false)
 }
 
 /// PinyinEngine 核心逻辑
@@ -256,6 +261,7 @@ public class PinyinEngine {
 
     private func processInternal(_ event: EngineEvent) -> EngineState {
         var committedText: String? = nil
+        var glitchLogged = false
 
         switch event {
         case .letter(let char):
@@ -287,6 +293,9 @@ public class PinyinEngine {
 
         case .punctuation(let char):
             committedText = handlePunctuation(char)
+
+        case .logGlitch:
+            glitchLogged = handleLogGlitch()
         }
 
         return EngineState(
@@ -294,8 +303,28 @@ public class PinyinEngine {
             candidates: candidates,
             committedText: committedText,
             mode: currentMode,
-            focusedSegmentIndex: focusIndex
+            focusedSegmentIndex: focusIndex,
+            glitchLogged: glitchLogged
         )
+    }
+
+    /// 诊断：把当前 rawPinyin + 候选 + Conversion 路径写入 glitch 日志。
+    /// 仅当 marker 启用 + rawPinyin 非空 + 拼音模式时才记录并返回 true。
+    private func handleLogGlitch() -> Bool {
+        guard !rawPinyin.isEmpty, currentMode == .pinyin else { return false }
+        guard GlitchLogger.shared.isEnabled else { return false }
+
+        let cleanPinyin = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
+        let conv = zhStore.flatMap {
+            Conversion.compose(cleanPinyin, store: $0, pinnedChars: pinnedChars)
+        }
+
+        GlitchLogger.shared.log(
+            pinyin: cleanPinyin,
+            candidates: candidates,
+            conv: conv
+        )
+        return true
     }
 
     // MARK: - 字母输入
