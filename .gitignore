@@ -5,8 +5,7 @@
 build/
 brainstorm/
 conductor/
-Packages/PinyinEngine/Sources/PinyinEngine/Resources/ja_dict.db
-Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
+Packages/PinyinEngine/Sources/PinyinEngine/Resources/*.db
 /dicts/
 
 __pycache__

@@ -10,9 +10,9 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install clean test dict dict-release dicts-all eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
+.PHONY: build install clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
 
-build:
+build: bundle-alt-dicts
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
 		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) build
 
@@ -67,6 +67,19 @@ dicts/zh_dict_ice_%.db:
 
 dicts/zh_dict_frost_%.db:
 	python3 tools/build_dict_db.py preset $* --source frost -o $@
+
+# ── 把 alt 词典同步到 engine Resources/（供 ⌃⇧⌘D 运行时切换使用）──
+# shipped zh_dict.db 本身即 ice default 变体，其余三个额外打包进 app bundle。
+ENGINE_RESOURCES = Packages/PinyinEngine/Sources/PinyinEngine/Resources
+BUNDLED_ALT_DICTS = \
+	$(ENGINE_RESOURCES)/zh_dict_ice_full.db \
+	$(ENGINE_RESOURCES)/zh_dict_frost_default.db \
+	$(ENGINE_RESOURCES)/zh_dict_frost_full.db
+
+$(ENGINE_RESOURCES)/zh_dict_%.db: dicts/zh_dict_%.db
+	cp $< $@
+
+bundle-alt-dicts: $(BUNDLED_ALT_DICTS)
 
 # ── 跨词库对比 ────────────────────────────────────────────────────────
 # 对 shipped 词库 + dicts/ 下所有 .db 跑 pinyin-eval，输出通过率表 + case 矩阵。

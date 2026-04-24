@@ -164,6 +164,36 @@ public class PinyinEngine {
 
     // MARK: - 词库加载
 
+    /// 当前加载的中文词库变体（对应 `zhDictVariants` 里的文件名前缀）。
+    public private(set) var currentZhDictVariant: String = "zh_dict"
+
+    /// 可切换的中文词库变体（按循环顺序）。所有变体都应作为 Resources 打包进 bundle。
+    /// - `zh_dict`：shipped 默认（rime-ice default 预设）
+    /// - `zh_dict_ice_full`：rime-ice full 预设，词汇更全
+    /// - `zh_dict_frost_default`：rime-frost default 预设，另一维护线
+    /// - `zh_dict_frost_full`：rime-frost full 预设
+    public static let zhDictVariants: [String] = [
+        "zh_dict",
+        "zh_dict_ice_full",
+        "zh_dict_frost_default",
+        "zh_dict_frost_full",
+    ]
+
+    /// 运行时切换中文词库。失败返回 false，保留原 store 不变。
+    /// - Parameter variant: `zhDictVariants` 里的文件名前缀（不含 `.db`）
+    @discardableResult
+    public func switchZhDict(variant: String) -> Bool {
+        guard let url = Bundle.module.url(forResource: variant, withExtension: "db") else {
+            return false
+        }
+        guard let newStore = DictionaryStore(path: url.path) else {
+            return false
+        }
+        zhStore = newStore
+        currentZhDictVariant = variant
+        return true
+    }
+
     /// 从 Bundle 资源加载 SQLite 词库
     private func loadDictionaries() {
         if let url = Bundle.module.url(forResource: "zh_dict", withExtension: "db") {

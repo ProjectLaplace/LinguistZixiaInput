@@ -131,6 +131,15 @@ class LaplaceInputController: IMKInputController {
             return true
         }
 
+        // 词典切换 hotkey：⌃⇧⌘D 循环切换已打包的词库变体（ice/ice+/frost/frost+），
+        // 用于在日常输入场景直接对比不同词库的效果。不要求组合中，任何时候都可用。
+        if modifiers == [.control, .shift, .command],
+            event.charactersIgnoringModifiers?.lowercased() == "d"
+        {
+            cycleZhDict()
+            return true
+        }
+
         // 带修饰键的事件（除 Shift 外）不处理，交给系统
         if !modifiers.isEmpty && modifiers != .shift {
             return false
@@ -186,6 +195,34 @@ class LaplaceInputController: IMKInputController {
         }
 
         return true
+    }
+
+    // MARK: - 词典切换
+
+    /// 循环切换 engine 的中文词库变体，在浮动指示器上显示新词库名称。
+    private func cycleZhDict() {
+        let variants = PinyinEngine.zhDictVariants
+        let current = engine.currentZhDictVariant
+        let idx = variants.firstIndex(of: current) ?? 0
+        let next = variants[(idx + 1) % variants.count]
+        guard engine.switchZhDict(variant: next) else {
+            NSLog("LaplaceIME: failed to switch to dict '\(next)'")
+            return
+        }
+        Self.indicator.showDictName(
+            name: Self.shortDictName(next), near: lastCursorRect)
+        NSLog("LaplaceIME: switched zh dict to '\(next)'")
+    }
+
+    /// 把 Resources 里的文件名前缀映射成指示器上显示的短标签。
+    private static func shortDictName(_ variant: String) -> String {
+        switch variant {
+        case "zh_dict": return "ice"
+        case "zh_dict_ice_full": return "ice+"
+        case "zh_dict_frost_default": return "frost"
+        case "zh_dict_frost_full": return "frost+"
+        default: return String(variant.prefix(6))
+        }
     }
 
     // MARK: - 事件映射
@@ -476,6 +513,38 @@ class LaplaceIndicator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.label.stringValue = "LP"
             self?.label.textColor = NSColor(white: 0.45, alpha: 1.0)
+            container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
+        }
+    }
+
+    /// 词典切换反馈：临时展宽指示器以容纳词典名（如 "frost+"），蓝底白字显示 1.5 秒后还原。
+    func showDictName(name: String, near cursorRect: NSRect) {
+        let container = panel.contentView!
+        let wideSize = NSSize(width: 60, height: 24)
+        panel.setContentSize(wideSize)
+        container.frame = NSRect(origin: .zero, size: wideSize)
+        label.frame = NSRect(
+            x: 0, y: (wideSize.height - 16) / 2, width: wideSize.width, height: 16)
+        label.stringValue = name
+        label.textColor = .white
+        container.layer!.backgroundColor = NSColor.systemBlue.cgColor
+
+        let x = cursorRect.origin.x
+        let y = cursorRect.origin.y - 32
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        panel.orderFront(nil)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self = self else { return }
+            self.panel.orderOut(nil)
+            let defaultSize = NSSize(width: 28, height: 24)
+            self.panel.setContentSize(defaultSize)
+            container.frame = NSRect(origin: .zero, size: defaultSize)
+            self.label.frame = NSRect(
+                x: 0, y: (defaultSize.height - 16) / 2,
+                width: defaultSize.width, height: 16)
+            self.label.stringValue = "LP"
+            self.label.textColor = NSColor(white: 0.45, alpha: 1.0)
             container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
         }
     }
