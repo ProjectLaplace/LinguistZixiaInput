@@ -161,6 +161,10 @@ public enum Conversion {
         var wordFreqSum: Double
         var wordCount: Int
         var wordCharCount: Int
+        /// 被任何多字词（word.count ≥ 2）覆盖的字数，不受 `wordNoiseFloor` 限制——
+        /// 噪声以下的多字词也计入。用作 pathScore/segs/chunks 全打平时的 tie-break：
+        /// 多字词典命中是更强的用户意图信号，哪怕 freq 没过 noise floor。
+        var softWordCharCount: Int
         var totalFreqSum: Double
         var segmentCount: Int
         var charCount: Int
@@ -170,7 +174,7 @@ public enum Conversion {
         static func empty(config: ScoringConfig) -> State {
             State(
                 segments: [], chunks: [],
-                wordFreqSum: 0, wordCount: 0, wordCharCount: 0,
+                wordFreqSum: 0, wordCount: 0, wordCharCount: 0, softWordCharCount: 0,
                 totalFreqSum: 0, segmentCount: 0, charCount: 0, chunkCount: 0,
                 config: config)
         }
@@ -193,6 +197,7 @@ public enum Conversion {
                 wordFreqSum: isWord ? segmentFreq : 0,
                 wordCount: isWord ? 1 : 0,
                 wordCharCount: isWord ? wordChars : 0,
+                softWordCharCount: wordChars >= 2 ? wordChars : 0,
                 totalFreqSum: segmentFreq,
                 segmentCount: segmentContribution,
                 charCount: wordChars,
@@ -209,6 +214,7 @@ public enum Conversion {
                 wordFreqSum: wordFreqSum + other.wordFreqSum,
                 wordCount: wordCount + other.wordCount,
                 wordCharCount: wordCharCount + other.wordCharCount,
+                softWordCharCount: softWordCharCount + other.softWordCharCount,
                 totalFreqSum: totalFreqSum + other.totalFreqSum,
                 segmentCount: segmentCount + other.segmentCount,
                 charCount: charCount + other.charCount,
@@ -227,7 +233,9 @@ public enum Conversion {
         /// 主键：pathScore 越大越好
         /// 次键：segmentCount 越小越好（避免 jiao 被拆成 ji+a+o）
         /// 三键：chunkCount 越小越好（避免 gang 被拆成 ga+ng）
-        /// 末键：totalFreqSum 越大越好
+        /// 四键：softWordCharCount 越大越好（多字词典命中更能反映用户意图，
+        ///     哪怕 freq 低于 wordNoiseFloor。救「心流+状态」vs「新+流+状态」这类 tie。）
+        /// 末键：totalFreqSum 越大越好（历史保留；在加入 softWordCharCount 后很少再起作用）
         ///
         /// coverageWeight=4 的直觉：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。
         /// 让高质量多字词（log=13）能压过低质量全覆盖（avg=9），
@@ -238,6 +246,9 @@ public enum Conversion {
             if aScore != bScore { return aScore > bScore }
             if segmentCount != other.segmentCount { return segmentCount < other.segmentCount }
             if chunkCount != other.chunkCount { return chunkCount < other.chunkCount }
+            if softWordCharCount != other.softWordCharCount {
+                return softWordCharCount > other.softWordCharCount
+            }
             return totalFreqSum > other.totalFreqSum
         }
 
