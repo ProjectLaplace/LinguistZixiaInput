@@ -117,6 +117,9 @@ func printCaseJSON(
         "config": [
             "coverageWeight": config.coverageWeight,
             "wordNoiseFloor": config.wordNoiseFloor,
+            "syllableGreedyWeight": config.syllableGreedyWeight,
+            "wordLengthWeight": config.wordLengthWeight,
+            "singleCharPenalty": config.singleCharPenalty,
         ],
     ]
     guard
@@ -258,7 +261,9 @@ let args = CommandLine.arguments
 
 if args.count < 2 {
     fputs(
-        "Usage: pinyin-eval [--json] [--coverage-weight N] [--word-noise-floor N] <cases-file> [--dict <path>]\n",
+        "Usage: pinyin-eval [--json] [--coverage-weight N] [--word-noise-floor N]\n"
+            + "                   [--syllable-greedy-weight N] [--word-length-weight N]\n"
+            + "                   [--single-char-penalty N] <cases-file> [--dict <path>]\n",
         stderr)
     fputs("       pinyin-eval [--json] \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
     fputs("       pinyin-eval -q <pinyin>\n", stderr)
@@ -270,8 +275,12 @@ var dictPath: String?
 var inputArg: String?
 var queryMode = false
 var jsonMode = false
-var coverageWeight: Double = 3.0
-var wordNoiseFloor: Int = 5000
+let defaults = ScoringConfig.default
+var coverageWeight: Double = defaults.coverageWeight
+var wordNoiseFloor: Int = defaults.wordNoiseFloor
+var syllableGreedyWeight: Double = defaults.syllableGreedyWeight
+var wordLengthWeight: Double = defaults.wordLengthWeight
+var singleCharPenalty: Double = defaults.singleCharPenalty
 var i = 1
 while i < args.count {
     if args[i] == "--dict" && i + 1 < args.count {
@@ -298,6 +307,31 @@ while i < args.count {
         }
         wordNoiseFloor = v
         i += 2
+    } else if args[i] == "--syllable-greedy-weight" && i + 1 < args.count {
+        guard let v = Double(args[i + 1]) else {
+            fputs(
+                "Error: --syllable-greedy-weight expects a number, got '\(args[i + 1])'\n",
+                stderr)
+            exit(1)
+        }
+        syllableGreedyWeight = v
+        i += 2
+    } else if args[i] == "--word-length-weight" && i + 1 < args.count {
+        guard let v = Double(args[i + 1]) else {
+            fputs(
+                "Error: --word-length-weight expects a number, got '\(args[i + 1])'\n", stderr)
+            exit(1)
+        }
+        wordLengthWeight = v
+        i += 2
+    } else if args[i] == "--single-char-penalty" && i + 1 < args.count {
+        guard let v = Double(args[i + 1]) else {
+            fputs(
+                "Error: --single-char-penalty expects a number, got '\(args[i + 1])'\n", stderr)
+            exit(1)
+        }
+        singleCharPenalty = v
+        i += 2
     } else if inputArg == nil {
         inputArg = args[i]
         i += 1
@@ -307,11 +341,17 @@ while i < args.count {
 }
 
 let scoringConfig = ScoringConfig(
-    coverageWeight: coverageWeight, wordNoiseFloor: wordNoiseFloor)
+    coverageWeight: coverageWeight,
+    wordNoiseFloor: wordNoiseFloor,
+    syllableGreedyWeight: syllableGreedyWeight,
+    wordLengthWeight: wordLengthWeight,
+    singleCharPenalty: singleCharPenalty)
 
 guard let input = inputArg else {
     fputs(
-        "Usage: pinyin-eval [--json] [--coverage-weight N] [--word-noise-floor N] <cases-file> [--dict <path>]\n",
+        "Usage: pinyin-eval [--json] [--coverage-weight N] [--word-noise-floor N]\n"
+            + "                   [--syllable-greedy-weight N] [--word-length-weight N]\n"
+            + "                   [--single-char-penalty N] <cases-file> [--dict <path>]\n",
         stderr)
     exit(1)
 }

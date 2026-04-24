@@ -12,6 +12,7 @@ qing|k              情况
 gang|c|d            刚才的
 jiqi|shang          机器上
 yongdao|de          用到的
+# 语义问题，分词算法很难正确解决
 wo|zhuyidao         我注意到
 meiguanxi|ba        没关系吧
 zui|heshi|ba        最合适吧

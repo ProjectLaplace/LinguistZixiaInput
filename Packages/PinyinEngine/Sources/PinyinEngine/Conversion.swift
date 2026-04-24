@@ -15,7 +15,7 @@ public struct ConversionResult {
     public let wordFreqAvg: Double
     /// 词覆盖率（被词覆盖的字数 / 总字数）
     public let wordCoverage: Double
-    /// pathScore = wordFreqAvg + `ScoringConfig.coverageWeight` * wordCoverage
+    /// 最终 pathScore（完整公式见 `ScoringConfig`）
     public let pathScore: Double
     /// 路径段总数（含反作弊：低频多字词段按 word.count 计入）
     public let segmentCount: Int
@@ -45,17 +45,42 @@ public struct ConversionResult {
 
 /// Conversion 评分参数。控制 pathScore 公式与词/噪声判定阈值。
 ///
-/// - `coverageWeight`：pathScore = wordFreqAvg + coverageWeight · wordCoverage 中的 coverage 权重。
+/// pathScore 公式：
+///   pathScore = wordFreqAvg
+///             + coverageWeight       · wordCoverage
+///             + syllableGreedyWeight · avgSyllableLength
+///             + wordLengthWeight     · avgWordLength
+///             - singleCharPenalty    · singleCharCount
+///
+/// - `coverageWeight`：被多字词覆盖的字数占比权重。
 /// - `wordNoiseFloor`：多字词（`count ≥ 2`）频率低于此值视为词典噪声，不计入
 ///   `wordFreqSum`/`wordCount`/`wordCharCount`。只有频率在 noise floor 之上的多字词
 ///   才贡献 coverage。阈值下的多字词段落入反作弊路径（segmentCount 按 word.count 计）。
+/// - `syllableGreedyWeight`：音节贪心权重，奖励平均音节长度更长的切分
+///   （例 zi+xia 均长 2.5 > zi+xi+a 均长 1.67）。
+/// - `wordLengthWeight`：多字词长度权重，奖励使用更长词典条目的路径
+///   （例 [输入法] 平均 3 字 > [输入]+[法] 平均 1.5 字）。单字不计入平均。
+/// - `singleCharPenalty`：单字惩罚，对每段单字扣分，避免单字高频（如「发」
+///   f=3.9M）虚高的 log(freq) 压过多字词选择。
 public struct ScoringConfig {
     public var coverageWeight: Double
     public var wordNoiseFloor: Int
+    public var syllableGreedyWeight: Double
+    public var wordLengthWeight: Double
+    public var singleCharPenalty: Double
 
-    public init(coverageWeight: Double = 3.0, wordNoiseFloor: Int = 5000) {
+    public init(
+        coverageWeight: Double = 3.0,
+        wordNoiseFloor: Int = 5000,
+        syllableGreedyWeight: Double = 1.0,
+        wordLengthWeight: Double = 1.0,
+        singleCharPenalty: Double = 2.0
+    ) {
         self.coverageWeight = coverageWeight
         self.wordNoiseFloor = wordNoiseFloor
+        self.syllableGreedyWeight = syllableGreedyWeight
+        self.wordLengthWeight = wordLengthWeight
+        self.singleCharPenalty = singleCharPenalty
     }
 
     public static let `default` = ScoringConfig()
@@ -169,6 +194,15 @@ public enum Conversion {
         var segmentCount: Int
         var charCount: Int
         var chunkCount: Int
+        /// 所有 chunks 的字母数总和。与 chunkCount 结合得到平均音节长度：
+        /// `avgSyllableLength = syllableCharCount / chunkCount`。对同一输入而言
+        /// syllableCharCount 在 DP 每个 cell 内恒等于剩余输入长度，因此 avgSyllableLength
+        /// 的变化完全来自 chunkCount——等价于把"chunk 数"的偏好从次键提升到主键。
+        var syllableCharCount: Int
+        /// 单字段数（word.count == 1）。pathScore 减 `singleCharPenalty × singleCharCount`：
+        /// 单字 log(freq) 通常远高于多字词（「的」「发」等高频单字），会虚高 pathScore；
+        /// 用结构性代价压制这种虚高。
+        var singleCharCount: Int
         var config: ScoringConfig
 
         static func empty(config: ScoringConfig) -> State {
@@ -176,6 +210,7 @@ public enum Conversion {
                 segments: [], chunks: [],
                 wordFreqSum: 0, wordCount: 0, wordCharCount: 0, softWordCharCount: 0,
                 totalFreqSum: 0, segmentCount: 0, charCount: 0, chunkCount: 0,
+                syllableCharCount: 0, singleCharCount: 0,
                 config: config)
         }
 
@@ -190,6 +225,7 @@ public enum Conversion {
             let wordChars = word.count
             // 反作弊：低频多字词按字数计入段数，避免垃圾词通过"减少段数"获益（段数是次键）
             let segmentContribution = (!isWord && word.count >= 2) ? word.count : 1
+            let sylChars = chunks.reduce(0) { $0 + $1.count }
 
             return State(
                 segments: [(word, chunks.joined(), frequency)],
@@ -202,6 +238,8 @@ public enum Conversion {
                 segmentCount: segmentContribution,
                 charCount: wordChars,
                 chunkCount: chunks.count,
+                syllableCharCount: sylChars,
+                singleCharCount: wordChars == 1 ? 1 : 0,
                 config: config)
         }
 
@@ -219,31 +257,41 @@ public enum Conversion {
                 segmentCount: segmentCount + other.segmentCount,
                 charCount: charCount + other.charCount,
                 chunkCount: chunkCount + other.chunkCount,
+                syllableCharCount: syllableCharCount + other.syllableCharCount,
+                singleCharCount: singleCharCount + other.singleCharCount,
                 config: config)
         }
 
-        /// 主键评分 pathScore = wordFreqAvg + coverageWeight · wordCoverage
+        /// 主键评分。公式（参见 ScoringConfig 注释）：
+        ///   pathScore = wordFreqAvg
+        ///             + coverageWeight       · wordCoverage
+        ///             + syllableGreedyWeight · avgSyllableLength
+        ///             + wordLengthWeight     · avgWordLength
+        ///             - singleCharPenalty    · singleCharCount
         var pathScore: Double {
             let wordFreqAvg = wordCount > 0 ? wordFreqSum / Double(wordCount) : -1
             let wordCoverage = charCount > 0 ? Double(wordCharCount) / Double(charCount) : 0
-            return wordFreqAvg + config.coverageWeight * wordCoverage
+            let avgSyllableLength =
+                chunkCount > 0 ? Double(syllableCharCount) / Double(chunkCount) : 0
+            let avgWordLength =
+                wordCount > 0 ? Double(wordCharCount) / Double(wordCount) : 0
+            return wordFreqAvg
+                + config.coverageWeight * wordCoverage
+                + config.syllableGreedyWeight * avgSyllableLength
+                + config.wordLengthWeight * avgWordLength
+                - config.singleCharPenalty * Double(singleCharCount)
         }
 
         /// 路径比较顺序（参见 Conversion.md "比较顺序"）：
         /// 主键：pathScore 越大越好
         /// 次键：segmentCount 越小越好（避免 jiao 被拆成 ji+a+o）
-        /// 三键：chunkCount 越小越好（避免 gang 被拆成 ga+ng）
+        /// 三键：chunkCount 越小越好（与 avgSyllableLength 方向一致，已基本被 pathScore
+        ///     吸收，保留作保险次键）
         /// 四键：softWordCharCount 越大越好（多字词典命中更能反映用户意图，
-        ///     哪怕 freq 低于 wordNoiseFloor。救「心流+状态」vs「新+流+状态」这类 tie。）
+        ///     哪怕 freq 低于 wordNoiseFloor。救「心流+状态」vs「新+流+状态」这类平局。）
         /// 末键：totalFreqSum 越大越好（历史保留；在加入 softWordCharCount 后很少再起作用）
         ///
-        /// 当前默认 coverageWeight=3、wordNoiseFloor=5000 是 tools/eval_sweep.py 在 28 个
-        /// fixture case 上扫出来的零回归最优点。
-        ///
-        /// 历史：原始设计 coverageWeight=4、wordNoiseFloor=10000 来自启发式直觉——
-        /// "wordCoverage 从 0.8→1.0（+0.2）约等于 wordFreqAvg 提升 0.8"，由此解 4。
-        /// 目的是让高质量多字词（log=13）能压过低质量全覆盖（avg=9），同时同质量下全覆盖
-        /// （精确+匹配）胜过有单字填充的（景区+饿+匹配）。保留作设计参考。
+        /// pathScore 公式见 ScoringConfig。默认值是保守起点，待 eval_sweep 扫参后定。
         func isBetter(than other: State) -> Bool {
             let aScore = pathScore
             let bScore = other.pathScore
@@ -266,7 +314,7 @@ public enum Conversion {
                 text: segments.map { $0.word }.joined(),
                 wordFreqAvg: wordFreqAvg,
                 wordCoverage: wordCoverage,
-                pathScore: wordFreqAvg + config.coverageWeight * wordCoverage,
+                pathScore: pathScore,
                 segmentCount: segmentCount,
                 totalFreqSum: totalFreqSum)
         }
