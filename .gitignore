@@ -8,4 +8,6 @@ conductor/
 Packages/PinyinEngine/Sources/PinyinEngine/Resources/ja_dict.db
 Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
+__pycache__
+
 .claude/settings.local.json
