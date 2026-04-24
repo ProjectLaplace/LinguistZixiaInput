@@ -14,7 +14,7 @@ python3 tools/build_dict_db.py preset default
 
 ## `eval_sweep.py`
 
-用不同评分参数（`--alpha`、`--word-threshold`）批量跑 `pinyin-eval`，把 NDJSON 输出聚合成 markdown 报告：参数网格下的通过率矩阵、最佳配置、以及相对 baseline 的逐 case 差分。迭代 `Conversion` 评分公式时用它快速对比，不用每个参数手动测。
+用不同评分参数（`--coverage-weight`、`--word-noise-floor`）批量跑 `pinyin-eval`，把 NDJSON 输出聚合成 markdown 报告：参数网格下的通过率矩阵、最佳配置、以及相对 baseline 的逐 case 差分。迭代 `Conversion` 评分公式时用它快速对比，不用每个参数手动测。
 
 ```
 python3 tools/eval_sweep.py fixtures/pinyin-strings.cases

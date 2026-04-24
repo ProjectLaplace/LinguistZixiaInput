@@ -106,11 +106,13 @@ wordCoverage = wordCharCount / charCount    (charCount > 0)
 ### pathScore
 
 **含义**：路径主评分，路径优劣的首要比较键。
-**形式化**：`pathScore = wordFreqAvg + α · wordCoverage  (α = 4)`
+**形式化**：`pathScore = wordFreqAvg + coverageWeight · wordCoverage  (coverageWeight = 4)`
 **范围**：实际约 `[9, 18]`。
 **作用**：Conversion 算法比较两条路径的首要依据。
 
-α=4 的设计意图：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。这样高质量多字词（log≈13）能压过低质量全覆盖（log≈9），同时同质量下全覆盖（精确+匹配）胜过有单字填充的（景区+饿+匹配）。
+`coverageWeight = 4` 的设计意图：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。这样高质量多字词（log≈13）能压过低质量全覆盖（log≈9），同时同质量下全覆盖（精确+匹配）胜过有单字填充的（景区+饿+匹配）。
+
+> 说明：当初这个 `4` 是基于例子的启发式，未经实测。`tools/eval_sweep.py` 出现后可按数据调整。
 
 ### totalFreqSum
 
@@ -182,7 +184,7 @@ wordCoverage = wordCharCount / charCount    (charCount > 0)
 - `zixiashurufa`：仔细+啊+输入+发 胜过 紫霞+输入法
   → wordFreqAvg 差距 (13.0 vs 10.8) 压过 wordCoverage 差距 (4×0.33=1.32)
 - `wozhuyidao`：握住+一道 胜过 我+注意到
-  → 错误路径 wordCoverage=1.0，正确路径 0.75，α=4 放大差距
+  → 错误路径 wordCoverage=1.0，正确路径 0.75，coverageWeight=4 放大差距
 - `jiludaowendangliba`：篱笆 胜过 里+吧
   → 篱笆是真词，覆盖 2 字，pathScore 微弱胜出（15.42 vs 15.40）
 
@@ -192,7 +194,7 @@ wordCoverage = wordCharCount / charCount    (charCount > 0)
 
 ## 核心矛盾
 
-**wordFreqAvg 和 wordCoverage 互相拆台**。增大 α 能让高覆盖路径胜出（修 zixiashurufa），但也会让"碰巧全覆盖"的错误路径胜出（恶化 wozhuyidao）。单参数调不通。
+**wordFreqAvg 和 wordCoverage 互相拆台**。增大 `coverageWeight` 能让高覆盖路径胜出（修 zixiashurufa），但也会让"碰巧全覆盖"的错误路径胜出（恶化 wozhuyidao）。单参数调不通。
 
 这也是分出 A 类优化方向的出发点：需要新的评分维度（如 totalFreqSum、词长加权）才能打破僵局。
 
@@ -212,10 +214,10 @@ wordCoverage = wordCharCount / charCount    (charCount > 0)
 **方案**：将 totalFreqSum 归一化后加入 pathScore：
 
 ```
-pathScore = wordFreqAvg + α · wordCoverage + β · (totalFreqSum / charCount)
+pathScore = wordFreqAvg + coverageWeight · wordCoverage + freqDensityWeight · (totalFreqSum / charCount)
 ```
 
-`totalFreqSum / charCount` 是每字平均 log(freq)，消除长度偏差。β 取较小值（如 0.5），让它在 pathScore 接近时起决定作用。
+`totalFreqSum / charCount` 是每字平均 log(freq)，消除长度偏差。`freqDensityWeight` 取较小值（如 0.5），让它在 pathScore 接近时起决定作用。
 
 **预期**：wozhuyidao 和 jiludaowendangliba 翻盘，不影响已通过的 case。
 
@@ -257,12 +259,13 @@ weightedAvg = Σ (log(freq) × len) / Σ len    // len = word.count
 
 **方向**：当音节数较少且无跨音节词库匹配时，降低 wordCoverage 权重或切换为逐字最优策略。具体方案和阈值待研究。
 
-### 5. 动态 α
+### 5. 动态 coverageWeight
 
-**思路**：短输入（2-3 音节）用较低 α 侧重词频，长输入（6+ 音节）用较高 α 侧重结构完整性。
+**思路**：短输入（2-3 音节）用较低 `coverageWeight` 侧重词频，长输入（6+ 音节）用较高 `coverageWeight` 侧重结构完整性。
 
 ```
-α = 3 + rawPinyin.syllableCount × 0.3    // 2 音节 α=3.6, 6 音节 α=4.8
+coverageWeight = 3 + rawPinyin.syllableCount × 0.3
+// 2 音节 coverageWeight=3.6, 6 音节 coverageWeight=4.8
 ```
 
 **风险**：引入输入长度依赖，增加调参复杂度。优先级低于 1-3。

@@ -3,7 +3,7 @@ import Foundation
 /// Conversion 路径诊断结果：一条切分路径的完整评分明细。
 ///
 /// 术语参见 Conversion.md。chunk = DFS 切分单元（合法音节或裸声母），
-/// segment = 路径段（对应一次词库命中），word = ≥2 字且 freq ≥ `ScoringConfig.wordFreqThreshold` 的词库条目。
+/// segment = 路径段（对应一次词库命中），word = ≥2 字且 freq ≥ `ScoringConfig.wordNoiseFloor` 的词库条目。
 public struct ConversionResult {
     /// 路径段：每段对应一次词库命中的 (word, pinyin, freq) 三元组
     public let segments: [(word: String, pinyin: String, frequency: Int)]
@@ -43,19 +43,19 @@ public struct ConversionResult {
     }
 }
 
-/// Conversion 评分参数。控制 pathScore 公式与 strict word 判定阈值。
+/// Conversion 评分参数。控制 pathScore 公式与词/噪声判定阈值。
 ///
-/// - `coverageWeight`：pathScore = wordFreqAvg + coverageWeight · wordCoverage 中的 α。
-/// - `wordFreqThreshold`：`count ≥ 2 且 freq ≥ threshold` 的段被视为 strict word，计入
-///   `wordFreqSum`/`wordCount`/`wordCharCount`。阈值下的多字词段落入反作弊路径
-///   （segmentCount 按 word.count 计）。
+/// - `coverageWeight`：pathScore = wordFreqAvg + coverageWeight · wordCoverage 中的 coverage 权重。
+/// - `wordNoiseFloor`：多字词（`count ≥ 2`）频率低于此值视为词典噪声，不计入
+///   `wordFreqSum`/`wordCount`/`wordCharCount`。只有频率在 noise floor 之上的多字词
+///   才贡献 coverage。阈值下的多字词段落入反作弊路径（segmentCount 按 word.count 计）。
 public struct ScoringConfig {
     public var coverageWeight: Double
-    public var wordFreqThreshold: Int
+    public var wordNoiseFloor: Int
 
-    public init(coverageWeight: Double = 4.0, wordFreqThreshold: Int = 10000) {
+    public init(coverageWeight: Double = 4.0, wordNoiseFloor: Int = 10000) {
         self.coverageWeight = coverageWeight
-        self.wordFreqThreshold = wordFreqThreshold
+        self.wordNoiseFloor = wordNoiseFloor
     }
 
     public static let `default` = ScoringConfig()
@@ -180,9 +180,9 @@ public enum Conversion {
             word: String, frequency: Int, chunks: [String], config: ScoringConfig
         ) -> State {
             let segmentFreq = log(Double(max(frequency, 1)))
-            // 低频多字词（freq < wordFreqThreshold）视为噪声，不计入词段评分和覆盖率。
+            // 低频多字词（freq < wordNoiseFloor）视为词典噪声，不计入词段评分和覆盖率。
             // 例如「的脚」(5555) 不应作为词段提升 wordCoverage
-            let isWord = word.count >= 2 && frequency >= config.wordFreqThreshold
+            let isWord = word.count >= 2 && frequency >= config.wordNoiseFloor
             let wordChars = word.count
             // 反作弊：低频多字词按字数计入段数，避免垃圾词通过"减少段数"获益（段数是次键）
             let segmentContribution = (!isWord && word.count >= 2) ? word.count : 1
@@ -229,7 +229,7 @@ public enum Conversion {
         /// 三键：chunkCount 越小越好（避免 gang 被拆成 ga+ng）
         /// 末键：totalFreqSum 越大越好
         ///
-        /// α=4 的直觉：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。
+        /// coverageWeight=4 的直觉：wordCoverage 从 0.8→1.0（+0.2）等价于 wordFreqAvg 提升 0.8。
         /// 让高质量多字词（log=13）能压过低质量全覆盖（avg=9），
         /// 同时同质量下全覆盖（精确+匹配）胜过有单字填充的（景区+饿+匹配）。
         func isBetter(than other: State) -> Bool {

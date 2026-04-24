@@ -116,7 +116,7 @@ func printCaseJSON(
         "split": convResultToDict(split),
         "config": [
             "coverageWeight": config.coverageWeight,
-            "wordFreqThreshold": config.wordFreqThreshold,
+            "wordNoiseFloor": config.wordNoiseFloor,
         ],
     ]
     guard
@@ -258,7 +258,7 @@ let args = CommandLine.arguments
 
 if args.count < 2 {
     fputs(
-        "Usage: pinyin-eval [--json] [--alpha N] [--word-threshold N] <cases-file> [--dict <path>]\n",
+        "Usage: pinyin-eval [--json] [--coverage-weight N] [--word-noise-floor N] <cases-file> [--dict <path>]\n",
         stderr)
     fputs("       pinyin-eval [--json] \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
     fputs("       pinyin-eval -q <pinyin>\n", stderr)
@@ -271,7 +271,7 @@ var inputArg: String?
 var queryMode = false
 var jsonMode = false
 var coverageWeight: Double = 4.0
-var wordFreqThreshold: Int = 10000
+var wordNoiseFloor: Int = 10000
 var i = 1
 while i < args.count {
     if args[i] == "--dict" && i + 1 < args.count {
@@ -283,19 +283,20 @@ while i < args.count {
     } else if args[i] == "--json" {
         jsonMode = true
         i += 1
-    } else if args[i] == "--alpha" && i + 1 < args.count {
+    } else if args[i] == "--coverage-weight" && i + 1 < args.count {
         guard let v = Double(args[i + 1]) else {
-            fputs("Error: --alpha expects a number, got '\(args[i + 1])'\n", stderr)
+            fputs("Error: --coverage-weight expects a number, got '\(args[i + 1])'\n", stderr)
             exit(1)
         }
         coverageWeight = v
         i += 2
-    } else if args[i] == "--word-threshold" && i + 1 < args.count {
+    } else if args[i] == "--word-noise-floor" && i + 1 < args.count {
         guard let v = Int(args[i + 1]) else {
-            fputs("Error: --word-threshold expects an integer, got '\(args[i + 1])'\n", stderr)
+            fputs(
+                "Error: --word-noise-floor expects an integer, got '\(args[i + 1])'\n", stderr)
             exit(1)
         }
-        wordFreqThreshold = v
+        wordNoiseFloor = v
         i += 2
     } else if inputArg == nil {
         inputArg = args[i]
@@ -306,11 +307,11 @@ while i < args.count {
 }
 
 let scoringConfig = ScoringConfig(
-    coverageWeight: coverageWeight, wordFreqThreshold: wordFreqThreshold)
+    coverageWeight: coverageWeight, wordNoiseFloor: wordNoiseFloor)
 
 guard let input = inputArg else {
     fputs(
-        "Usage: pinyin-eval [--json] [--alpha N] [--word-threshold N] <cases-file> [--dict <path>]\n",
+        "Usage: pinyin-eval [--json] [--coverage-weight N] [--word-noise-floor N] <cases-file> [--dict <path>]\n",
         stderr)
     exit(1)
 }
