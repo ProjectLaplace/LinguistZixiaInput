@@ -10,7 +10,20 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install reload clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
+.PHONY: bootstrap build install reload clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
+
+# 一键准备开发环境：生成所有打包的词典文件，并清理废弃产物。
+# 新 worktree / clean checkout 后跑一次即可。
+# 注意 fixtures 会先把 zh_dict.db 写成 12KB 占位，随后被 preset default 覆盖为完整词典。
+bootstrap:
+	@echo "==> Generating fixture dictionaries (ja_dict)..."
+	python3 tools/build_dict_db.py fixtures
+	@echo "==> Generating default zh_dict (rime-ice default preset)..."
+	python3 tools/build_dict_db.py preset default
+	@echo "==> Generating and bundling alt dict variants..."
+	$(MAKE) bundle-alt-dicts
+	@rm -f $(ENGINE_RESOURCES)/zh_dict_unispim.db
+	@echo "==> Bootstrap complete"
 
 build: bundle-alt-dicts
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
