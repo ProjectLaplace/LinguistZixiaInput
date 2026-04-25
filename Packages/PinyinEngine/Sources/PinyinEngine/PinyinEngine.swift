@@ -730,6 +730,19 @@ public class PinyinEngine {
             }
         }
 
+        // 4b. 首词候选注入：长串输入（≥4 音节）且 Conversion 拆出 ≥2 段时，
+        //     把首词作为第二候选放到候选栏里。配合后续 Ctrl+Tab 激活该候选 + [ ] 选字，
+        //     可实现「跨词组合」compose 流程。
+        if defaultSyllables.count >= 4,
+            let conv = convResult,
+            conv.segments.count > 1,
+            conv.segments[0].word.count >= 2,
+            !result.isEmpty,
+            result.first != conv.segments[0].word
+        {
+            result.insert(conv.segments[0].word, at: 1)
+        }
+
         // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
         //    追加该拼音的其他候选，方便用户快速替换首词继续组词
         firstSegmentCandidateStart = 0

@@ -132,6 +132,28 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(state.activeCandidateIndex, 0)
     }
 
+    // MARK: - First-Word Candidate Injection
+
+    func testFirstWordCandidateInjectedFor4Syllables() {
+        // kaifajishu (4 syllables): no whole match, Conversion produces 开发+技术
+        let state = type("kaifajishu")
+        XCTAssertGreaterThanOrEqual(state.candidates.count, 2)
+        XCTAssertEqual(state.candidates[0], "开发技术")
+        XCTAssertEqual(state.candidates[1], "开发")
+    }
+
+    func testFirstWordCandidateNotInjectedFor2Syllables() {
+        // shijian (2 syllables): too short, no first-word injection
+        let state = type("shijian")
+        XCTAssertEqual(state.candidates.first, "时间")
+        // The 2nd candidate should NOT be the first word 「时」 — that path is only
+        // for ≥4 syllable input. (「时」 may still appear as a first-segment
+        // supplementary candidate later in the list, but not at index 1.)
+        if state.candidates.count >= 2 {
+            XCTAssertNotEqual(state.candidates[1], "时")
+        }
+    }
+
     func testNumberCommitsThenContinueTyping() {
         // shi + number(2) commits「时」directly
         type("shi")
