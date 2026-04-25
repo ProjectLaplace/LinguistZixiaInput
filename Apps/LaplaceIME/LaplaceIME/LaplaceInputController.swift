@@ -140,6 +140,17 @@ class LaplaceInputController: IMKInputController {
             return true
         }
 
+        // Pin / unpin hotkey：⌃⇧<1-9> 把候选第 N 项 pin 到用户层队首；
+        // ⌃⇧⌘<1-9> 把候选第 N 项从用户层移除。两者修饰键互斥（前者不含 .command）。
+        // 引擎内部 pinnableContext 已守卫模式 / 缓冲区 / 索引；这里成功才吞事件，
+        // 守卫不通过时返回 false 让系统继续派发原事件。
+        if modifiers == [.control, .shift, .command], let digit = digitFromEvent(event) {
+            return handlePinHotkey(unpin: true, digit: digit, client: client)
+        }
+        if modifiers == [.control, .shift], let digit = digitFromEvent(event) {
+            return handlePinHotkey(unpin: false, digit: digit, client: client)
+        }
+
         // 带修饰键的事件（除 Shift 外）不处理，交给系统
         if !modifiers.isEmpty && modifiers != .shift {
             return false
@@ -212,6 +223,48 @@ class LaplaceInputController: IMKInputController {
         Self.indicator.showDictName(
             name: Self.shortDictName(next), near: lastCursorRect)
         NSLog("LaplaceIME: switched zh dict to '\(next)'")
+    }
+
+    // MARK: - Pin / Unpin 候选
+
+    /// 从事件中解析数字行 1–9 键。
+    /// 直接读 keyCode，因为：
+    /// - `event.characters` 在 ⌃ 修饰下被压成控制字符（U+0000 等），无法取到数字。
+    /// - `event.charactersIgnoringModifiers` 文档明确**保留 Shift 影响**，⌃⇧2 会得到 `"@"`，
+    ///   不能用来识别数字键。
+    /// keyCode 是 USB HID 物理位置码，与键盘布局（QWERTY / Dvorak / AZERTY）无关，安全可比。
+    private func digitFromEvent(_ event: NSEvent) -> Int? {
+        switch event.keyCode {
+        case 18: return 1
+        case 19: return 2
+        case 20: return 3
+        case 21: return 4
+        case 23: return 5
+        case 22: return 6
+        case 26: return 7
+        case 28: return 8
+        case 25: return 9
+        default: return nil
+        }
+    }
+
+    /// 把 ⌃⇧<digit> / ⌃⇧⌘<digit> 映射到引擎的 pin / unpin API，并刷新候选 UI。
+    /// digit 是用户视角的「第 N 个候选」（1-based），需要叠加 pageOffset 还原成
+    /// 引擎 candidates 数组的全局索引。
+    /// - Returns: 引擎成功处理（吞事件）；否则返回 false 让系统继续派发。
+    private func handlePinHotkey(unpin: Bool, digit: Int, client: any IMKTextInput) -> Bool {
+        let globalIndex = pageOffset + digit - 1
+        let ok =
+            unpin
+            ? engine.unpinCandidate(atIndex: globalIndex)
+            : engine.pinCandidate(atIndex: globalIndex)
+        guard ok else { return false }
+
+        // 引擎已重算 candidates；同步本地快照并刷新 IMK 候选窗。
+        currentState = engine.currentState
+        pageOffset = 0
+        applyState(to: client)
+        return true
     }
 
     /// 把 Resources 里的文件名前缀映射成指示器上显示的短标签。

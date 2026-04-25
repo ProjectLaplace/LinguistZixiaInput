@@ -219,6 +219,19 @@ public class PinyinEngine {
         }
     }
 
+    /// 当前引擎状态的只读快照，不触发任何 event。
+    /// 用于 `pinCandidate` / `unpinCandidate` 这类内部修改候选后、调用方需重新读取 state 的场景。
+    public var currentState: EngineState {
+        EngineState(
+            items: composingItems,
+            candidates: candidates,
+            committedText: nil,
+            mode: currentMode,
+            focusedSegmentIndex: focusIndex,
+            glitchLogged: false
+        )
+    }
+
     /// v 开头内置命令：名称 → 结果生成闭包
     private static let vCommands: [String: () -> String] = [
         "vprofile": { Profiler.summary() },
