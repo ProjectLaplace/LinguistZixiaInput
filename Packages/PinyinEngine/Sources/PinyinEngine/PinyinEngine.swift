@@ -74,6 +74,10 @@ public struct EngineState {
     public let mode: InputMode
     /// 当前聚焦的可编辑段索引（在可编辑段中的序号，nil 表示末尾）
     public let focusedSegmentIndex: Int?
+    /// 当前激活的候选索引（在 candidates 列表中的位置）。
+    /// 默认为 0（首选）；通过 Ctrl+Tab 等导航事件可游走到其他候选。
+    /// bracket 等基于「当前候选」的操作以此为准。
+    public let activeCandidateIndex: Int
     /// 本轮事件是否触发了 glitch 日志写入（供 UI 显示"已记录"反馈）
     public let glitchLogged: Bool
 
@@ -85,7 +89,7 @@ public struct EngineState {
     /// 初始空闲状态
     public static let idle = EngineState(
         items: [], candidates: [], committedText: nil, mode: .pinyin,
-        focusedSegmentIndex: nil, glitchLogged: false)
+        focusedSegmentIndex: nil, activeCandidateIndex: 0, glitchLogged: false)
 }
 
 /// PinyinEngine 核心逻辑
@@ -101,8 +105,12 @@ public class PinyinEngine {
 
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
-    private var candidates: [String] = []
+    private var candidates: [String] = [] {
+        didSet { activeCandidateIndex = 0 }
+    }
     private var currentMode: InputMode = .pinyin
+    /// 当前激活候选索引；任何对 candidates 的赋值会经 didSet 归零
+    private var activeCandidateIndex: Int = 0
 
     // 自动切分状态
     private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
@@ -228,6 +236,7 @@ public class PinyinEngine {
             committedText: nil,
             mode: currentMode,
             focusedSegmentIndex: focusIndex,
+            activeCandidateIndex: activeCandidateIndex,
             glitchLogged: false
         )
     }
@@ -353,6 +362,7 @@ public class PinyinEngine {
             committedText: committedText,
             mode: currentMode,
             focusedSegmentIndex: focusIndex,
+            activeCandidateIndex: activeCandidateIndex,
             glitchLogged: glitchLogged
         )
     }

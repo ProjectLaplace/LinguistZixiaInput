@@ -117,6 +117,21 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertNil(state.committedText)
     }
 
+    // MARK: - Active Candidate State
+
+    func testActiveCandidateIndexDefaultsToZero() {
+        let idle = EngineState.idle
+        XCTAssertEqual(idle.activeCandidateIndex, 0)
+        let state = type("shi")
+        XCTAssertEqual(state.activeCandidateIndex, 0)
+    }
+
+    func testActiveCandidateIndexResetsAfterCommit() {
+        type("shi")
+        let state = space()
+        XCTAssertEqual(state.activeCandidateIndex, 0)
+    }
+
     func testNumberCommitsThenContinueTyping() {
         // shi + number(2) commits「时」directly
         type("shi")
