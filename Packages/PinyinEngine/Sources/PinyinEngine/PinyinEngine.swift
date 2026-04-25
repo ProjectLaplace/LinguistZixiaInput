@@ -792,6 +792,27 @@ public class PinyinEngine {
             }
         }
 
+        // 8. Garbage 尾兜底：用户敲了既不是音节也不是声母的「垃圾尾巴」
+        //    （典型是孤立韵母 u/i/v，如 wuwuu 末尾的 u），Conversion 与前缀匹配都跳过这种 case。
+        //    用 syllables 部分组词，把每条候选 + remainder 原文拼成合成候选，
+        //    让用户至少能选到「中文+残留字符」的提交，避免因候选空被 handleSpace
+        //    兜底成 commit 原始 ASCII 串。
+        if result.isEmpty && !remainder.isEmpty && !remainderIsBareInitial
+            && !defaultSyllables.isEmpty
+        {
+            let truncated = defaultSyllables.joined()
+            var truncatedResult = store?.candidates(for: truncated) ?? []
+            if truncatedResult.isEmpty && defaultSyllables.count > 1 {
+                if let conv = unifiedCompose(truncated, store: store) {
+                    truncatedResult = [conv.text]
+                }
+            }
+            if currentMode == .pinyin {
+                truncatedResult = applyPinnedChars(for: truncated, to: truncatedResult)
+            }
+            result = truncatedResult.prefix(9).map { $0 + remainder }
+        }
+
         // 固顶字：单音节（含不完整前缀）时，将固顶字插入候选列表最前面
         if currentMode == .pinyin && defaultSyllables.count <= 1 {
             result = applyPinnedChars(for: cleanPinyin, to: result)

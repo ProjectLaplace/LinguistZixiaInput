@@ -630,4 +630,49 @@ final class PinyinEngineTests: XCTestCase {
         let committed = space()
         XCTAssertEqual(committed.committedText, "刚才的")
     }
+
+    // MARK: - Garbage-tail fallback (孤立韵母兜底)
+
+    // 用户敲了既不是音节也不是声母的「垃圾尾巴」（如 wuwuu 末尾的 u），
+    // Conversion 与前缀匹配都失败时，引擎应基于前面合法音节组词，
+    // 把候选 + remainder 原文拼接成「中文+残留字符」，让按空格/数字键能选。
+
+    func testGarbageTailMultiSyllableProducesMixedCandidates() {
+        let state = type("wuwuu")
+        XCTAssertFalse(
+            state.candidates.isEmpty, "wuwuu should produce candidates via garbage-tail fallback")
+        // 候选都应以 garbage 字符 u 结尾（说明走了 fallback 路径，不是误命中前缀匹配）
+        XCTAssertTrue(
+            state.candidates.allSatisfy { $0.hasSuffix("u") },
+            "All candidates should end with the garbage 'u'; got \(state.candidates.prefix(5))")
+    }
+
+    func testGarbageTailSingleSyllableProducesMixedCandidates() {
+        // 单合法音节 + garbage：wuu = wu + u，应给出「无u」「五u」等
+        let state = type("wuu")
+        XCTAssertFalse(state.candidates.isEmpty, "wuu should produce candidates")
+        XCTAssertTrue(
+            state.candidates.contains("无u"),
+            "Should contain composed 无u; got \(state.candidates.prefix(5))")
+    }
+
+    func testGarbageTailSpaceCommitsTopCandidateNotRawAscii() {
+        // 关键回归保护：以前没候选时 space 兜底 commit 原 ASCII「wuwuu」，是 bug。
+        // 现在 fallback 提供候选，space 应 commit 候选（中文+u），不再 commit 原文。
+        type("wuwuu")
+        let committed = space()
+        XCTAssertNotNil(committed.committedText)
+        XCTAssertNotEqual(committed.committedText, "wuwuu", "Should not commit raw ASCII")
+        XCTAssertTrue(
+            committed.committedText?.hasSuffix("u") ?? false,
+            "Committed text should be 中文+u; got \(committed.committedText ?? "nil")")
+    }
+
+    func testGarbageTailNumberKeySelectsCandidate() {
+        // 数字键 guard 当 candidates 空时拒绝；fallback 提供候选后数字键应能选字。
+        let state = type("wuwuu")
+        XCTAssertFalse(state.candidates.isEmpty)
+        let committed = number(1)
+        XCTAssertEqual(committed.committedText, state.candidates[0])
+    }
 }
