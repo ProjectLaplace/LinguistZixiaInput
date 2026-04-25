@@ -1,0 +1,34 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 深邃的藏青色/仪器灰 -->
+    <linearGradient id="instrumentBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2C3338" />
+      <stop offset="100%" stop-color="#1A1F24" />
+    </linearGradient>
+    
+    <!-- 网格图案 -->
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M 64 0 L 0 0 0 64" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#instrumentBg)" />
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#grid)" />
+  
+  <!-- 仪器外框线 -->
+  <rect x="128" y="128" width="768" height="768" rx="140" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2" />
+
+  <!-- 带有刻度感的 [ ] -->
+  <g stroke="#A78BFA" stroke-width="24" stroke-linecap="butt" stroke-linejoin="miter" fill="none">
+    <!-- 左侧方括号，带有一个中间定位标记 -->
+    <path d="M 340 280 L 260 280 L 260 744 L 340 744" />
+    <line x1="230" y1="512" x2="260" y2="512" stroke-width="12" />
+    
+    <!-- 右侧方括号，带有一个中间定位标记 -->
+    <path d="M 684 280 L 764 280 L 764 744 L 684 744" />
+    <line x1="764" y1="512" x2="794" y2="512" stroke-width="12" />
+  </g>
+
+  <!-- 理性的非衬线汉字 -->
+  <text x="512" y="690" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="380" font-weight="500" text-anchor="middle" fill="#E2E8F0">紫</text>
+</svg>

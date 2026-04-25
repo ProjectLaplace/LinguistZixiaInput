@@ -1,0 +1,42 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 背景渐变：从轻盈的紫霞色到深邃的逻辑紫 -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A78BFA" /> <!-- 浅紫 -->
+      <stop offset="100%" stop-color="#4C1D95" /> <!-- 深紫 -->
+    </linearGradient>
+    
+    <!-- 玻璃反光渐变 -->
+    <linearGradient id="glassGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.5)" />
+      <stop offset="50%" stop-color="rgba(255,255,255,0.0)" />
+      <stop offset="100%" stop-color="rgba(255,255,255,0.1)" />
+    </linearGradient>
+
+    <!-- 投影效果 -->
+    <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
+    
+    <filter id="innerShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000000" flood-opacity="0.2" />
+    </filter>
+  </defs>
+
+  <!-- App 图标主体底座 (macOS Squircle 近似) -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bgGradient)" filter="url(#dropShadow)" />
+  
+  <!-- 玻璃质感反光与高光边框 (Liquid Glass 效果) -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#glassGradient)" />
+  <rect x="66" y="66" width="892" height="892" rx="198" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="4" />
+  <rect x="62" y="62" width="900" height="900" rx="202" fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="2" />
+
+  <!-- 超级符号：方括号 [ ] -->
+  <g stroke="white" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#innerShadow)">
+    <path d="M 320 280 L 220 280 L 220 744 L 320 744" />
+    <path d="M 704 280 L 804 280 L 804 744 L 704 744" />
+  </g>
+
+  <!-- 核心汉字 -->
+  <text x="512" y="690" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="420" font-weight="600" text-anchor="middle" fill="white" filter="url(#innerShadow)">紫</text>
+</svg>

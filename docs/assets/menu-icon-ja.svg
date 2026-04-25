@@ -1,0 +1,17 @@
+<svg width="26" height="18" viewBox="0 0 26 18" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <mask id="knockout">
+      <rect width="26" height="18" rx="4" fill="white" />
+      
+      <g stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M 6 4 L 4 4 L 4 14 L 6 14" />
+        <path d="M 20 4 L 22 4 L 22 14 L 20 14" />
+      </g>
+      
+      <!-- 使用系统日文字体 -->
+      <text x="13" y="13.5" font-family="-apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif" font-size="12" font-weight="600" text-anchor="middle" fill="black">日</text>
+    </mask>
+  </defs>
+  
+  <rect width="26" height="18" rx="4" fill="black" mask="url(#knockout)" />
+</svg>
