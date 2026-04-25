@@ -247,14 +247,8 @@ func findPinnedChars() -> PinnedCharStore? {
         return PinnedCharStore(path: envPath)
     }
 
-    if let root = findProjectRoot() {
-        let path = "\(root)/fixtures/pinned_chars.toml"
-        if FileManager.default.fileExists(atPath: path) {
-            return PinnedCharStore(path: path)
-        }
-    }
-
-    return nil
+    // Default to the bundled sys layer (and any Application Support user layer).
+    return PinnedCharStore.loadDefault()
 }
 
 let args = CommandLine.arguments
