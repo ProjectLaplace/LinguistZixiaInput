@@ -10,7 +10,7 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: build install clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
+.PHONY: build install reload clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
 
 build: bundle-alt-dicts
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
@@ -22,6 +22,17 @@ install: build
 	rm -rf "$(INSTALL_DIR)/$(APP_NAME)"
 	cp -R "$(BUILD_DIR)/Build/Products/$(CONFIG)/$(APP_NAME)" "$(INSTALL_DIR)/"
 	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME)"
+
+LSREGISTER = /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+# 让菜单栏代理重读 IME plist（图标、TISIconLabels 等），免去重启系统。
+# lsregister -f 强制刷新 LaunchServices 数据库里的 bundle 信息，
+# 然后重启 TextInputMenuAgent（菜单栏渲染）和 IME 进程本身。
+reload:
+	-$(LSREGISTER) -f "$(INSTALL_DIR)/$(APP_NAME)" 2>/dev/null
+	-killall TextInputMenuAgent 2>/dev/null
+	-killall "Linguist Zixia Input" 2>/dev/null
+	@echo "Reloaded LaunchServices + TextInputMenuAgent"
 
 clean:
 	rm -rf $(BUILD_DIR)
