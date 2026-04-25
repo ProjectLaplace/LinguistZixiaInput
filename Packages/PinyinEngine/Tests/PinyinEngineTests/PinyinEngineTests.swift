@@ -218,6 +218,34 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertTrue(state.items.isEmpty)
     }
 
+    func testSpaceInComposeModeCommitsTextPlusBestRemaining() {
+        // 「开」+ jishu，空格应提交 「开」 + 剩余的最佳候选 「技术」
+        type("kaifajishu")
+        cycleActive()
+        bracketLeft()  // 「开」 + jishu
+        let state = space()
+        XCTAssertEqual(state.committedText, "开技术")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testEscInComposeModeCommitsTextDiscardsRemaining() {
+        // 「开」+ jishu，ESC 应提交 「开」 并丢弃 jishu
+        type("kaifajishu")
+        cycleActive()
+        bracketLeft()  // 「开」 + jishu
+        let state = esc()
+        XCTAssertEqual(state.committedText, "开")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testEscWithOnlyPinyinDiscardsAll() {
+        // 缓冲区里只有拼音段时，ESC 维持原有的「全部丢弃」语义
+        type("shi")
+        let state = esc()
+        XCTAssertNil(state.committedText)
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
     func testCycleActiveCandidateNoOpWithSingleCandidate() {
         let typed = type("a")  // assumes few candidates; check real count
         guard typed.candidates.count <= 1 else {

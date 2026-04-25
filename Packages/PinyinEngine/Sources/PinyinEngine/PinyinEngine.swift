@@ -331,6 +331,13 @@ public class PinyinEngine {
             handleBackspace()
 
         case .esc:
+            // 若缓冲区里有已确认的 .text 项（compose 模式中已选字 / 首段确认后的状态），
+            // ESC 把它们提交并丢弃未确认的拼音，避免用户辛苦组的字白白丢失。
+            // 缓冲区里只有拼音时维持原有「全部丢弃」语义。
+            if composingItems.contains(where: { !$0.isEditable }) {
+                let confirmed = composingItems.filter { !$0.isEditable }
+                committedText = confirmed.map { $0.content }.joined()
+            }
             resetAll()
 
         case .enter:
