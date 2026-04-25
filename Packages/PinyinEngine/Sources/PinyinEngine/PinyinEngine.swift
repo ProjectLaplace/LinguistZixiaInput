@@ -514,8 +514,11 @@ public class PinyinEngine {
         if focusIndex != nil {
             return confirmFocusedSegment(with: char)
         } else {
+            // 普通模式：选中的字直接提交，整个拼音串与未选中的字一并丢弃
             finalizeAllPinyin(with: char)
-            return nil
+            let result = composingItems.map { $0.content }.joined()
+            resetAll()
+            return result
         }
     }
 

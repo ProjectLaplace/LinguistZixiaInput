@@ -93,32 +93,28 @@ final class PinyinEngineTests: XCTestCase {
     func testBracketLeftPicksFirstChar() {
         type("shijian")
         let state = bracketLeft()
-        // 「shijian」→「时间」, [ picks first char「时」
-        XCTAssertEqual(state.items, [.text("时")])
-        XCTAssertNil(state.committedText)
+        // 「shijian」→「时间」, [ picks first char「时」 and commits directly
+        XCTAssertEqual(state.committedText, "时")
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
     }
 
     func testBracketRightPicksLastChar() {
         type("shijian")
         let state = bracketRight()
-        // 「shijian」→「时间」, ] picks last char「间」
-        XCTAssertEqual(state.items, [.text("间")])
-        XCTAssertNil(state.committedText)
+        // 「shijian」→「时间」, ] picks last char「间」 and commits directly
+        XCTAssertEqual(state.committedText, "间")
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
     }
 
-    // MARK: - Composing Chain (复合缓冲区组词)
-
-    func testComposingChain() {
-        // shijian + [ + ziguang + spc → 「时光」
+    func testBracketThenContinueTyping() {
+        // After bracket commits, the next pinyin starts fresh
         type("shijian")
-        bracketLeft()  // buffer: [.text("时")]
-
-        type("ziguang")  // buffer: [.text("时"), .pinyin("ziguang")]
-
-        let state = space()
-        // space finalizes「紫光」then commits all: 「时」+「紫光」= 「时紫光」
-        XCTAssertEqual(state.committedText, "时紫光")
-        XCTAssertTrue(state.items.isEmpty)
+        bracketLeft()  // commits 「时」
+        let state = type("shi")
+        XCTAssertEqual(state.items, [.pinyin("shi")])
+        XCTAssertNil(state.committedText)
     }
 
     func testNumberCommitsThenContinueTyping() {
