@@ -141,10 +141,10 @@ class LaplaceInputController: IMKInputController {
         }
 
         // Pin / unpin hotkey：⌃⇧<1-9> 把候选第 N 项 pin 到用户层队首；
-        // ⌃⇧⌘<1-9> 把候选第 N 项从用户层移除。两者修饰键互斥（前者不含 .command）。
+        // ⌃⇧⌥<1-9> 把候选第 N 项从用户层移除。⌃⇧⌘<num> 与系统截图冲突所以避开。
         // 引擎内部 pinnableContext 已守卫模式 / 缓冲区 / 索引；这里成功才吞事件，
         // 守卫不通过时返回 false 让系统继续派发原事件。
-        if modifiers == [.control, .shift, .command], let digit = digitFromEvent(event) {
+        if modifiers == [.control, .shift, .option], let digit = digitFromEvent(event) {
             return handlePinHotkey(unpin: true, digit: digit, client: client)
         }
         if modifiers == [.control, .shift], let digit = digitFromEvent(event) {
