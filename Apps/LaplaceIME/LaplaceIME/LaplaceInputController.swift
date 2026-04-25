@@ -286,7 +286,13 @@ class LaplaceInputController: IMKInputController {
         case 49: return pageOffset > 0 ? .number(pageOffset + 1) : .space
         case 36: return .enter
         case 53: return .esc
-        case 48: return .tab(backward: event.modifierFlags.contains(.shift))
+        case 48:
+            // Ctrl+Tab / Ctrl+Shift+Tab：循环切换激活候选（不提交）
+            // Tab / Shift+Tab：进入/移动音节聚焦
+            let backward = event.modifierFlags.contains(.shift)
+            return event.modifierFlags.contains(.control)
+                ? .cycleActiveCandidate(backward: backward)
+                : .tab(backward: backward)
         default: break
         }
 
@@ -452,8 +458,19 @@ class LaplaceInputController: IMKInputController {
             // New candidates available — update and show
             window.update()
             window.show()
+            applyActiveCandidateHighlight(window: window)
         }
         // Buffer non-empty but no candidates (partial syllable) — keep showing previous candidates
+    }
+
+    /// 在 IMK 候选窗里把 activeCandidateIndex 对应的格子高亮（IMK 内置的 selection 游标）。
+    /// 仅对当前页可见的候选有效。
+    private func applyActiveCandidateHighlight(window: IMKCandidates) {
+        let pageIndex = currentState.activeCandidateIndex - pageOffset
+        let pageSize = pageFit(from: pageOffset)
+        guard pageIndex >= 0 && pageIndex < pageSize else { return }
+        let identifier = window.candidateIdentifier(atLineNumber: pageIndex)
+        window.selectCandidate(withIdentifier: identifier)
     }
 
     // MARK: - 浮动指示器

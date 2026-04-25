@@ -50,6 +50,8 @@ public enum EngineEvent {
     case esc
     case bracket(pickLast: Bool)
     case tab(backward: Bool)
+    /// 在候选列表中循环移动激活候选（不提交）。配合 [ ] 在长串场景下选字组词。
+    case cycleActiveCandidate(backward: Bool)
     case punctuation(Character)
     /// 诊断：记录当前拼音 + 候选 + Conversion 路径到 glitch 日志（marker 启用时）。
     /// 不改变组合状态，仅触发日志写入与 UI 反馈。
@@ -349,6 +351,9 @@ public class PinyinEngine {
         case .tab(let backward):
             handleTab(backward: backward)
 
+        case .cycleActiveCandidate(let backward):
+            handleCycleActiveCandidate(backward: backward)
+
         case .punctuation(let char):
             committedText = handlePunctuation(char)
 
@@ -560,6 +565,18 @@ public class PinyinEngine {
         }
 
         updateCandidatesForFocus()
+    }
+
+    /// 在候选列表中循环移动激活候选（不提交）。
+    /// 候选数 ≤ 1 时无效；移动到边界时绕回另一端。
+    private func handleCycleActiveCandidate(backward: Bool) {
+        guard candidates.count > 1 else { return }
+        let n = candidates.count
+        if backward {
+            activeCandidateIndex = (activeCandidateIndex - 1 + n) % n
+        } else {
+            activeCandidateIndex = (activeCandidateIndex + 1) % n
+        }
     }
 
     // MARK: - 全角标点

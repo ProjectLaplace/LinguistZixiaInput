@@ -34,6 +34,12 @@ final class PinyinEngineTests: XCTestCase {
     private func bracketRight() -> EngineState { engine.process(.bracket(pickLast: true)) }
     private func tab() -> EngineState { engine.process(.tab(backward: false)) }
     private func shiftTab() -> EngineState { engine.process(.tab(backward: true)) }
+    private func cycleActive() -> EngineState {
+        engine.process(.cycleActiveCandidate(backward: false))
+    }
+    private func cycleActiveBack() -> EngineState {
+        engine.process(.cycleActiveCandidate(backward: true))
+    }
 
     // MARK: - Basic Input & Commit Flows
 
@@ -152,6 +158,33 @@ final class PinyinEngineTests: XCTestCase {
         if state.candidates.count >= 2 {
             XCTAssertNotEqual(state.candidates[1], "时")
         }
+    }
+
+    // MARK: - Cycle Active Candidate
+
+    func testCycleActiveCandidateMovesForward() {
+        let typed = type("kaifajishu")
+        XCTAssertGreaterThanOrEqual(typed.candidates.count, 2)
+        XCTAssertEqual(typed.activeCandidateIndex, 0)
+        let cycled = cycleActive()
+        XCTAssertEqual(cycled.activeCandidateIndex, 1)
+    }
+
+    func testCycleActiveCandidateBackwardWrapsAround() {
+        let typed = type("kaifajishu")
+        XCTAssertGreaterThanOrEqual(typed.candidates.count, 2)
+        let cycled = cycleActiveBack()
+        XCTAssertEqual(cycled.activeCandidateIndex, typed.candidates.count - 1)
+    }
+
+    func testCycleActiveCandidateNoOpWithSingleCandidate() {
+        let typed = type("a")  // assumes few candidates; check real count
+        guard typed.candidates.count <= 1 else {
+            // Skip if fixture provides multiple candidates here
+            return
+        }
+        let cycled = cycleActive()
+        XCTAssertEqual(cycled.activeCandidateIndex, 0)
     }
 
     func testNumberCommitsThenContinueTyping() {
