@@ -177,6 +177,47 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(cycled.activeCandidateIndex, typed.candidates.count - 1)
     }
 
+    // MARK: - Bracket Compose Mode
+
+    func testBracketOnFirstWordCandidateEntersComposeMode() {
+        // kaifajishu (4 syl): 1st 「开发技术」, 2nd 「开发」（首词注入）
+        type("kaifajishu")
+        cycleActive()  // active → 「开发」
+        let state = bracketLeft()
+        // 选「开」，消耗 kaifa（2 音节），剩余 jishu
+        XCTAssertNil(state.committedText)
+        XCTAssertEqual(state.items.first, .text("开"))
+        XCTAssertTrue(state.candidates.contains("技术"), "Remaining 'jishu' should match 「技术」")
+    }
+
+    func testBracketComposeChainCommitsWhenSyllablesExhausted() {
+        // 流程：kaifajishu → Ctrl+Tab → [ → 「开」+ jishu → [ on 「技术」 → 提交「开技」
+        type("kaifajishu")
+        cycleActive()
+        bracketLeft()  // 「开」 in buffer, remaining jishu
+        let state = bracketLeft()  // active=0 「技术」 (2 chars), 消耗 jishu，无剩余 → 提交
+        XCTAssertEqual(state.committedText, "开技")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testBracketRightOnFirstWordPicksLastChar() {
+        // ] picks last char of active candidate
+        type("kaifajishu")
+        cycleActive()  // active → 「开发」
+        let state = bracketRight()
+        XCTAssertNil(state.committedText)
+        XCTAssertEqual(state.items.first, .text("发"))
+    }
+
+    func testBracketOnWholeMatchStillCommitsDirectly() {
+        // 4 音节但 active 是整串 → 消耗全部 → commit（保持 commit 1 行为）
+        type("kaifajishu")
+        // active 默认 0 = 「开发技术」(4 chars)
+        let state = bracketLeft()
+        XCTAssertEqual(state.committedText, "开")
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
     func testCycleActiveCandidateNoOpWithSingleCandidate() {
         let typed = type("a")  // assumes few candidates; check real count
         guard typed.candidates.count <= 1 else {

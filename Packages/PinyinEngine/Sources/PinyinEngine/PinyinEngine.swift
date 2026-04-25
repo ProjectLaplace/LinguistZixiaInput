@@ -522,19 +522,36 @@ public class PinyinEngine {
 
     /// 处理以词定字
     private func handleBracket(pickLast: Bool) -> String? {
-        guard let first = candidates.first,
-            let char = pickCharacter(from: first, pickLast: pickLast)
-        else { return nil }
+        guard activeCandidateIndex < candidates.count else { return nil }
+        let active = candidates[activeCandidateIndex]
+        guard let char = pickCharacter(from: active, pickLast: pickLast) else { return nil }
 
         if focusIndex != nil {
             return confirmFocusedSegment(with: char)
-        } else {
-            // 普通模式：选中的字直接提交，整个拼音串与未选中的字一并丢弃
-            finalizeAllPinyin(with: char)
-            let result = composingItems.map { $0.content }.joined()
-            resetAll()
-            return result
         }
+
+        // 普通模式：消耗激活候选所对应的音节（按汉字字数估算 = 音节数）。
+        // 若消耗后仍有音节剩余 → compose 模式：选中字进缓冲区，剩余拼音继续匹配；
+        // 否则 → 直接提交（候选覆盖了全部输入，没有可继续的部分）。
+        let consumeCount = active.count
+        let (allSyllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
+
+        if remainder.isEmpty && consumeCount < allSyllables.count {
+            let remainingPinyin = allSyllables[consumeCount...].joined()
+            composingItems.append(.text(char))
+            rawPinyin = remainingPinyin
+            focusIndex = nil
+            firstSegmentCandidateStart = 0
+            firstSegmentPinyin = ""
+            rebuildFromRawPinyin()
+            return nil
+        }
+
+        // 直接提交：选中的字与已确认的 .text 项一并提交，未选中的部分丢弃。
+        finalizeAllPinyin(with: char)
+        let result = composingItems.map { $0.content }.joined()
+        resetAll()
+        return result
     }
 
     // MARK: - Tab 导航
