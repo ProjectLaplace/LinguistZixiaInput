@@ -771,17 +771,16 @@ public class PinyinEngine {
             }
         }
 
-        // 4b. 首词候选注入：长串输入（≥4 音节）且 Conversion 拆出 ≥2 段时，
-        //     把首词作为第二候选放到候选栏里。配合后续 Ctrl+Tab 激活该候选 + [ ] 选字，
-        //     可实现「跨词组合」compose 流程。
+        // 4b. 首词候选注入：长串输入（≥4 音节）时，独立查最长前缀词作为第二候选，
+        //     与 Conversion 的最优切分解耦（完整词典下 Conversion 可能挑单字段）。
+        //     配合后续 Ctrl+Tab 激活该候选 + [ ] 选字，可实现「跨词组合」compose 流程。
         if defaultSyllables.count >= 4,
-            let conv = convResult,
-            conv.segments.count > 1,
-            conv.segments[0].word.count >= 2,
+            remainder.isEmpty || remainderIsBareInitial,
             !result.isEmpty,
-            result.first != conv.segments[0].word
+            let firstWord = findLongestPrefixWord(syllables: defaultSyllables, store: store),
+            firstWord != result.first
         {
-            result.insert(conv.segments[0].word, at: 1)
+            result.insert(firstWord, at: 1)
         }
 
         // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
@@ -1043,6 +1042,22 @@ public class PinyinEngine {
     private func pickCharacter(from candidate: String, pickLast: Bool) -> String? {
         guard !candidate.isEmpty else { return nil }
         return pickLast ? String(candidate.last!) : String(candidate.first!)
+    }
+
+    /// 在词典里找首词候选：从最长前缀（音节数为 syllables.count - 1）开始往下，
+    /// 取第一个 ≥2 字的命中。仅用于长串输入的首词注入。
+    private func findLongestPrefixWord(syllables: [String], store: DictionaryStore?)
+        -> String?
+    {
+        guard syllables.count >= 2 else { return nil }
+        for prefixLen in stride(from: syllables.count - 1, through: 2, by: -1) {
+            let prefix = Self.normalizePinyin(syllables[0..<prefixLen].joined())
+            guard let cands = store?.candidates(for: prefix) else { continue }
+            if let multi = cands.first(where: { $0.count >= 2 }) {
+                return multi
+            }
+        }
+        return nil
     }
 
     /// 将拼音中 u 作为 ü 的替代写法规范化为 v（仅限 l/n 声母后的 ue→ve）
