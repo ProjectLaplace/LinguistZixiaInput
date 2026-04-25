@@ -33,6 +33,9 @@ let package = Package(
             dependencies: ["PinyinEngine"]),
         .testTarget(
             name: "PinyinEngineTests",
-            dependencies: ["PinyinEngine"]),
+            dependencies: ["PinyinEngine"],
+            resources: [
+                .process("Resources")
+            ]),
     ]
 )

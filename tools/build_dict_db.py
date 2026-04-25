@@ -42,6 +42,9 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 RESOURCES_DIR = os.path.join(
     PROJECT_ROOT, "Packages", "PinyinEngine", "Sources", "PinyinEngine", "Resources"
 )
+TEST_RESOURCES_DIR = os.path.join(
+    PROJECT_ROOT, "Packages", "PinyinEngine", "Tests", "PinyinEngineTests", "Resources"
+)
 FIXTURES_DIR = os.path.join(PROJECT_ROOT, "fixtures")
 
 SOURCES = {
@@ -244,10 +247,11 @@ def cmd_explicit(args):
 
 def cmd_fixtures(args):
     print("Rebuilding test fixture databases...")
+    os.makedirs(TEST_RESOURCES_DIR, exist_ok=True)
 
     for name in ["zh_dict", "ja_dict"]:
         json_path = os.path.join(FIXTURES_DIR, f"{name}.json")
-        db_path = os.path.join(RESOURCES_DIR, f"{name}.db")
+        db_path = os.path.join(TEST_RESOURCES_DIR, f"{name}.db")
 
         if not os.path.isfile(json_path):
             print(f"  Skipping {name}: {json_path} not found")

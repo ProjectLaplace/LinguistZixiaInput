@@ -12,14 +12,19 @@ DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
 .PHONY: bootstrap build install reload clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
 
+TEST_RESOURCES = Packages/PinyinEngine/Tests/PinyinEngineTests/Resources
+
 # 一键准备开发环境：生成所有打包的词典文件，并清理废弃产物。
 # 新 worktree / clean checkout 后跑一次即可。
-# 注意 fixtures 会先把 zh_dict.db 写成 12KB 占位，随后被 preset default 覆盖为完整词典。
+# fixture 词典写到 test target 的 Resources（仅供单元测试加载），不再污染 production。
+# production 暂用 fixture 版的 ja_dict 作为占位，等正式 ja preset 实现后替换。
 bootstrap:
-	@echo "==> Generating fixture dictionaries (ja_dict)..."
+	@echo "==> Generating fixture dictionaries into test resources..."
 	python3 tools/build_dict_db.py fixtures
-	@echo "==> Generating default zh_dict (rime-ice default preset)..."
+	@echo "==> Generating default zh_dict (rime-ice default preset) into production resources..."
 	python3 tools/build_dict_db.py preset default
+	@echo "==> Seeding production ja_dict from fixture (no ja preset yet)..."
+	cp $(TEST_RESOURCES)/ja_dict.db $(ENGINE_RESOURCES)/ja_dict.db
 	@echo "==> Generating and bundling alt dict variants..."
 	$(MAKE) bundle-alt-dicts
 	@rm -f $(ENGINE_RESOURCES)/zh_dict_unispim.db
