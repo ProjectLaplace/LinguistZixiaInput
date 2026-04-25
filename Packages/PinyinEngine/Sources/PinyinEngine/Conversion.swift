@@ -119,6 +119,7 @@ public enum Conversion {
     ///   Conversion:  检查(580k)+一下(501k)+呢(高频) >> 检查仪(4k)+限额(138k)
     public static func compose(
         _ input: String, store: DictionaryStore, pinnedChars: PinnedCharStore? = nil,
+        pinnedWords: PinnedWordStore? = nil,
         config: ScoringConfig = .default
     ) -> ConversionResult? {
         let chars = Array(input)
@@ -131,7 +132,10 @@ public enum Conversion {
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
-            enumeratePhrases(chars: chars, from: pos, store: store, pinnedChars: pinnedChars) {
+            enumeratePhrases(
+                chars: chars, from: pos, store: store,
+                pinnedChars: pinnedChars, pinnedWords: pinnedWords
+            ) {
                 word, frequency, chunks, endPos in
                 guard let rest = dp[endPos] else { return }
 
@@ -352,6 +356,7 @@ public enum Conversion {
     fileprivate static func enumeratePhrases(
         chars: [Character], from startPos: Int, store: DictionaryStore,
         pinnedChars: PinnedCharStore? = nil,
+        pinnedWords: PinnedWordStore? = nil,
         callback: (String, Int, [String], Int) -> Void
     ) {
         let n = chars.count
@@ -379,9 +384,15 @@ public enum Conversion {
 
                 // 查词库，获取词和词频
                 if var top = store.topCandidate(for: newPinyin) {
-                    // 单字匹配时，固顶字替代词库默认字
+                    // 单字匹配时，固顶字替代词库默认字；
+                    // 多字匹配时，固顶词替代词库默认词。
                     if top.word.count == 1,
                         let pinned = pinnedChars?.pinnedChars(for: newPinyin),
+                        let first = pinned.first
+                    {
+                        top.word = first
+                    } else if top.word.count >= 2,
+                        let pinned = pinnedWords?.pinnedWords(for: newPinyin),
                         let first = pinned.first
                     {
                         top.word = first
@@ -438,6 +449,12 @@ public enum Conversion {
                                     {
                                         top.word = first
                                     }
+                                } else if let pinned = pinnedWords?.pinnedWords(
+                                    for: expandedPinyin),
+                                    let first = pinned.first
+                                {
+                                    // 多字匹配时，固顶词替代词库默认词。
+                                    top.word = first
                                 }
                                 callback(
                                     top.word, top.frequency, accSyllables + [initial], newPos)

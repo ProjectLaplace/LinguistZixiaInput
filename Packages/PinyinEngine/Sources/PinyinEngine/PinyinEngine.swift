@@ -96,6 +96,7 @@ public class PinyinEngine {
     private var jaStore: DictionaryStore?
     private var userDict: UserDictionary?
     private var pinnedChars: PinnedCharStore?
+    private var pinnedWords: PinnedWordStore?
     private var customPhrases: CustomPhraseStore?
 
     // 内部状态管理
@@ -140,6 +141,7 @@ public class PinyinEngine {
         loadDictionaries()
         userDict = UserDictionary()
         pinnedChars = PinnedCharStore.loadDefault()
+        pinnedWords = PinnedWordStore.loadDefault()
         customPhrases = CustomPhraseStore.loadDefault()
     }
 
@@ -149,16 +151,18 @@ public class PinyinEngine {
         jaStore = DictionaryStore(path: jaDictPath)
     }
 
-    /// 使用指定的词库文件路径、用户词典路径、固顶字和自定义短语初始化（用于测试）
+    /// 使用指定的词库文件路径、用户词典路径、固顶字/词和自定义短语初始化（用于测试）
     public init(
         zhDictPath: String, jaDictPath: String, userDictPath: String,
         pinnedChars: PinnedCharStore? = nil,
+        pinnedWords: PinnedWordStore? = nil,
         customPhrases: CustomPhraseStore? = nil
     ) {
         zhStore = DictionaryStore(path: zhDictPath)
         jaStore = DictionaryStore(path: jaDictPath)
         userDict = UserDictionary(path: userDictPath)
         self.pinnedChars = pinnedChars
+        self.pinnedWords = pinnedWords
         self.customPhrases = customPhrases
     }
 
@@ -348,7 +352,8 @@ public class PinyinEngine {
 
         let cleanPinyin = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
         let conv = zhStore.flatMap {
-            Conversion.compose(cleanPinyin, store: $0, pinnedChars: pinnedChars)
+            Conversion.compose(
+                cleanPinyin, store: $0, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
         }
 
         GlitchLogger.shared.log(
@@ -588,7 +593,8 @@ public class PinyinEngine {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
         let cleanPinyin = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
         let convResult = store.flatMap {
-            Conversion.compose(cleanPinyin, store: $0, pinnedChars: pinnedChars)
+            Conversion.compose(
+                cleanPinyin, store: $0, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
         }
 
         if let conv = convResult {
@@ -675,6 +681,12 @@ public class PinyinEngine {
         let wholeSet = Set(wholeMatches)
         for word in userResults where !wholeSet.contains(word) {
             result.append(word)
+        }
+
+        // 3a. 多音节场景下应用固顶词，把 pinned words 提到候选列表前。
+        //     单音节由后续 applyPinnedChars 负责单字提顶，避免在单音节路径上插入多字词。
+        if currentMode == .pinyin && defaultSyllables.count >= 2 {
+            result = applyPinnedWords(for: cleanPinyin, to: result)
         }
 
         // 4. 有精确匹配时跳过 Conversion；无精确匹配时用 Conversion 组词
@@ -821,6 +833,16 @@ public class PinyinEngine {
         return pinned + candidates.filter { !pinnedSet.contains($0) }
     }
 
+    /// 将固顶词插入候选列表最前面，去除重复。
+    /// 与 `applyPinnedChars` 平行；在多音节路径上把 pinnedWords 提顶。
+    private func applyPinnedWords(for pinyin: String, to candidates: [String]) -> [String] {
+        guard let pinned = pinnedWords?.pinnedWords(for: pinyin), !pinned.isEmpty else {
+            return candidates
+        }
+        let pinnedSet = Set(pinned)
+        return pinned + candidates.filter { !pinnedSet.contains($0) }
+    }
+
     // MARK: - 确认与提交辅助
 
     /// 将整个拼音串替换为一个确定的文本（正常模式下选词/以词定字）
@@ -947,7 +969,63 @@ public class PinyinEngine {
             }
         }
         guard let store = store, !input.isEmpty else { return nil }
-        return Conversion.compose(input, store: store, pinnedChars: pinnedChars)
+        return Conversion.compose(
+            input, store: store, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
+    }
+
+    // MARK: - Pin / Unpin 候选（IMK 集成接口）
+
+    /// 把第 N 个候选 pin 到当前拼音的用户层队首。
+    /// - Returns: 是否成功执行；以下情形返回 false 且不修改状态：
+    ///   - 当前模式不是中文（仅中文拼音支持 pin）
+    ///   - 缓冲区为空、含已确认文本段、或处于 Tab 聚焦状态
+    ///   - 候选索引越界
+    /// 单字候选 → 走 PinnedCharStore；多字候选 → 走 PinnedWordStore。
+    /// 写入后立即重算候选，让 IMK 拿到新的列表（pinned 项会在顶）。
+    @discardableResult
+    public func pinCandidate(atIndex index: Int) -> Bool {
+        guard let pinyin = pinnableContext(forIndex: index) else { return false }
+        let candidate = candidates[index]
+
+        if candidate.count == 1 {
+            pinnedChars?.pin(candidate, forPinyin: pinyin)
+        } else {
+            pinnedWords?.pin(candidate, forPinyin: pinyin)
+        }
+        rebuildFromRawPinyin()
+        return true
+    }
+
+    /// 把第 N 个候选从用户层移除（不影响 sys 层）。
+    /// 守卫与索引规则同 `pinCandidate`；候选不在用户层时 store 内部静默跳过。
+    @discardableResult
+    public func unpinCandidate(atIndex index: Int) -> Bool {
+        guard let pinyin = pinnableContext(forIndex: index) else { return false }
+        let candidate = candidates[index]
+
+        if candidate.count == 1 {
+            pinnedChars?.unpinUser(candidate, forPinyin: pinyin)
+        } else {
+            pinnedWords?.unpinUser(candidate, forPinyin: pinyin)
+        }
+        rebuildFromRawPinyin()
+        return true
+    }
+
+    /// 校验 pin/unpin 的前置条件并返回用作 pinyin key 的规范化字符串。
+    /// 仅在「拼音模式 + 缓冲区无已确认文本 + Tab 未聚焦 + 索引合法」时返回非 nil。
+    /// 多音节会被自动切分成多个 .pinyin 段，所以不限制段数；只要求所有段都是
+    /// 未确认的拼音输入（没有 .text 前缀），且 rawPinyin 非空。
+    private func pinnableContext(forIndex index: Int) -> String? {
+        guard currentMode == .pinyin else { return nil }
+        guard !composingItems.isEmpty else { return nil }
+        guard composingItems.allSatisfy({ $0.isEditable }) else { return nil }
+        guard focusIndex == nil else { return nil }
+        guard index >= 0 && index < candidates.count else { return nil }
+        let cleanPinyin = Self.normalizePinyin(
+            rawPinyin.lowercased().replacingOccurrences(of: "'", with: ""))
+        guard !cleanPinyin.isEmpty else { return nil }
+        return cleanPinyin
     }
 
     // MARK: - 兼容性接口

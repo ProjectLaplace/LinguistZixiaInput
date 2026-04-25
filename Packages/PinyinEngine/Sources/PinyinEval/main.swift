@@ -133,10 +133,11 @@ func printCaseJSON(
 
 func evaluate(
     _ evalCase: EvalCase, store: DictionaryStore, pinnedChars: PinnedCharStore?,
-    config: ScoringConfig, jsonMode: Bool
+    pinnedWords: PinnedWordStore?, config: ScoringConfig, jsonMode: Bool
 ) -> Bool {
     let convResult = Conversion.compose(
-        evalCase.rawPinyin, store: store, pinnedChars: pinnedChars, config: config)
+        evalCase.rawPinyin, store: store,
+        pinnedChars: pinnedChars, pinnedWords: pinnedWords, config: config)
     let splitResult = Conversion.scoreSplit(evalCase.expectedSplit, store: store, config: config)
     let actualText = convResult?.text ?? ""
 
@@ -251,6 +252,15 @@ func findPinnedChars() -> PinnedCharStore? {
     return PinnedCharStore.loadDefault()
 }
 
+func findPinnedWords() -> PinnedWordStore? {
+    if let envPath = ProcessInfo.processInfo.environment["PINYIN_PINNED_WORDS_PATH"] {
+        return PinnedWordStore(path: envPath)
+    }
+
+    // Default to the bundled sys layer (and any Application Support user layer).
+    return PinnedWordStore.loadDefault()
+}
+
 let args = CommandLine.arguments
 
 if args.count < 2 {
@@ -358,6 +368,7 @@ guard let store = DictionaryStore(path: resolvedDictPath) else {
 }
 
 let pinnedChars = findPinnedChars()
+let pinnedWords = findPinnedWords()
 
 // -q 模式：查询词库
 if queryMode {
@@ -386,7 +397,8 @@ if queryMode {
 
     // Conversion 结果
     if let convResult = Conversion.compose(
-        pinyin, store: store, pinnedChars: pinnedChars, config: scoringConfig)
+        pinyin, store: store,
+        pinnedChars: pinnedChars, pinnedWords: pinnedWords, config: scoringConfig)
     {
         print(
             "\(Color.bold)conv:\(Color.reset)   \(convResult.text)  \(Color.dim)\(formatPath(convResult))\(Color.reset)"
@@ -424,7 +436,8 @@ var passed = 0
 var failed = 0
 for c in cases {
     if evaluate(
-        c, store: store, pinnedChars: pinnedChars, config: scoringConfig, jsonMode: jsonMode)
+        c, store: store, pinnedChars: pinnedChars, pinnedWords: pinnedWords,
+        config: scoringConfig, jsonMode: jsonMode)
     {
         passed += 1
     } else {

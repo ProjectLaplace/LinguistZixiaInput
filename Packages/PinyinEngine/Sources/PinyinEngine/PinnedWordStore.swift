@@ -1,14 +1,16 @@
 import Foundation
 
-/// Two-layer pinned char store: sys (bundled, read-only) + user (Application Support, writable).
+/// Two-layer pinned word store: sys (bundled, read-only) + user (Application Support, writable).
 /// File format (TOML):
 ///   [pinned]
-///   d = "的地得大"
-///   shi = "是时"
+///   zhongguo = ["中国"]
+///   zhonggong = ["中共", "重工"]
 ///
-/// Each value is a string of characters; position = priority (first char = top candidate).
-/// Lookup merges both layers (user first, then sys) and dedupes by character.
-public class PinnedCharStore: PinnedLookup {
+/// 与 `PinnedCharStore` 不同，每个 value 是完整词项的数组而非字符串拼接，
+/// 避免多字词在拼接形态下无法表达字符边界。手写文件友好起见，
+/// 单条目允许写成 `key = "中国"`，解析时归一为单元素数组；
+/// 序列化输出统一为数组形式以保证读写对称。
+public class PinnedWordStore: PinnedLookup {
     /// 系统层（bundle 内置只读数据），由 `Bundle.module` 加载。
     private var sysTable: [String: [String]] = [:]
     /// 用户层（Application Support 可写），用户 pin / unpin 操作只影响这一层。
@@ -46,39 +48,39 @@ public class PinnedCharStore: PinnedLookup {
         userTable = Self.parse(toml)
     }
 
-    /// Return the merged pinned char list for the given pinyin (user layer first, deduped).
-    public func pinnedChars(for pinyin: String) -> [String] {
+    /// Return the merged pinned word list for the given pinyin (user layer first, deduped).
+    public func pinnedWords(for pinyin: String) -> [String] {
         return PinnedLookupHelper.merge(
             user: userTable[pinyin] ?? [],
             sys: sysTable[pinyin] ?? [],
             candidates: [])
     }
 
-    /// `PinnedLookup` 协议实现：转发到 `pinnedChars(for:)`。
+    /// `PinnedLookup` 协议实现：转发到 `pinnedWords(for:)`。
     public func pinned(for pinyin: String) -> [String] {
-        return pinnedChars(for: pinyin)
+        return pinnedWords(for: pinyin)
     }
 
     // MARK: - 写操作（仅作用于 user 层）
 
-    /// 把一个字 pin 到指定拼音的用户层队首。
+    /// 把一个词 pin 到指定拼音的用户层队首。
     /// - 若已在 user 列表则移到队首（去重）。
     /// - 若不在则插入队首。
     /// - userPath 非 nil 时原子写回文件。
-    public func pin(_ char: String, forPinyin pinyin: String) {
+    public func pin(_ word: String, forPinyin pinyin: String) {
         var list = userTable[pinyin] ?? []
-        list.removeAll { $0 == char }
-        list.insert(char, at: 0)
+        list.removeAll { $0 == word }
+        list.insert(word, at: 0)
         userTable[pinyin] = list
         persistUserTable()
     }
 
-    /// 从用户层移除某字。不影响 sys 层。
+    /// 从用户层移除某词。不影响 sys 层。
     /// userPath 非 nil 时原子写回文件。
-    public func unpinUser(_ char: String, forPinyin pinyin: String) {
+    public func unpinUser(_ word: String, forPinyin pinyin: String) {
         guard var list = userTable[pinyin] else { return }
         let originalCount = list.count
-        list.removeAll { $0 == char }
+        list.removeAll { $0 == word }
         guard list.count != originalCount else { return }
         if list.isEmpty {
             userTable.removeValue(forKey: pinyin)
@@ -104,28 +106,21 @@ public class PinnedCharStore: PinnedLookup {
         }
     }
 
-    // MARK: - TOML 解析
+    // MARK: - TOML 解析与序列化
 
-    /// 解析 `[pinned]` section，把每个字符串值拆成单字数组（char 语义）。
-    /// 复用 `MinimalTOML` 通用解析，再把 `[pinned] key = "abc"` 的 `["abc"]` 展开为 `["a","b","c"]`。
+    /// 解析 `[pinned]` section，每个 key 直接对应数组形式的 value 列表。
     private static func parse(_ content: String) -> [String: [String]] {
-        var result: [String: [String]] = [:]
-        for (key, values) in MinimalTOML.parse(content, section: "pinned") {
-            // PinnedChar 历史格式只允许字符串值；拼接后按字拆。
-            let joined = values.joined()
-            let chars = joined.map { String($0) }.filter { !$0.isEmpty }
-            result[key] = chars
-        }
-        return result
+        return MinimalTOML.parse(content, section: "pinned")
     }
 
     /// 把 user 层 table 序列化为 TOML 文本（以 `[pinned]` 为唯一 section）。
-    /// key 排序保证写回文件稳定，便于人工 diff。
+    /// key 排序保证写回文件稳定，便于人工 diff；value 即便仅一条也写成数组形式。
     private static func serialize(_ table: [String: [String]]) -> String {
         var lines: [String] = ["[pinned]"]
         for key in table.keys.sorted() {
-            let value = (table[key] ?? []).joined()
-            lines.append("\(key) = \"\(value)\"")
+            let values = table[key] ?? []
+            let body = values.map { "\"\($0)\"" }.joined(separator: ", ")
+            lines.append("\(key) = [\(body)]")
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -133,20 +128,20 @@ public class PinnedCharStore: PinnedLookup {
     // MARK: - 默认加载入口
 
     /// 同时加载 bundle 内的 sys 文件与 Application Support 下的 user 文件。
-    /// - sys: `Bundle.module` 中的 `sys_pinned_chars.toml`（若资源缺失即 sys 层为空）。
-    /// - user: `~/Library/Application Support/LaplaceIME/pinned_chars.toml`。
-    public static func loadDefault() -> PinnedCharStore? {
+    /// - sys: `Bundle.module` 中的 `sys_pinned_words.toml`（若资源缺失即 sys 层为空）。
+    /// - user: `~/Library/Application Support/LaplaceIME/pinned_words.toml`。
+    public static func loadDefault() -> PinnedWordStore? {
         let sysPath = Bundle.module.url(
-            forResource: "sys_pinned_chars", withExtension: "toml")?.path
+            forResource: "sys_pinned_words", withExtension: "toml")?.path
         guard
             let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
             ).first
         else {
             // 没有用户目录也仍然返回 sys-only 的 store，保证 bundle 数据可用。
-            return PinnedCharStore(sysPath: sysPath, userPath: nil)
+            return PinnedWordStore(sysPath: sysPath, userPath: nil)
         }
-        let userPath = appSupport.appendingPathComponent("LaplaceIME/pinned_chars.toml").path
-        return PinnedCharStore(sysPath: sysPath, userPath: userPath)
+        let userPath = appSupport.appendingPathComponent("LaplaceIME/pinned_words.toml").path
+        return PinnedWordStore(sysPath: sysPath, userPath: userPath)
     }
 }

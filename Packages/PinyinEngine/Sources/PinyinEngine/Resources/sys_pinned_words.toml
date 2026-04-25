@@ -1,0 +1,7 @@
+# Pinned words per pinyin (sys layer).
+# Each value is an array of words; position = priority (first item = top candidate).
+# Examples:
+#   zhongguo = ["中国"]
+#   zhonggong = ["中共", "重工"]
+
+[pinned]
