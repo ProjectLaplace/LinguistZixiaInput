@@ -148,7 +148,9 @@ public class PinyinEngine {
 
     /// 使用 Bundle 内置词库初始化
     public init() {
-        loadDictionaries()
+        let variant = Self.persistedZhDictVariant() ?? "zh_dict"
+        loadDictionaries(zhVariant: variant)
+        currentZhDictVariant = variant
         userDict = UserDictionary()
         pinnedChars = PinnedCharStore.loadDefault()
         pinnedWords = PinnedWordStore.loadDefault()
@@ -193,7 +195,20 @@ public class PinyinEngine {
         "zh_dict_frost_full",
     ]
 
+    /// `UserDefaults` 中保存当前词库变体的键名。轻量软状态，不写入配置文件。
+    private static let zhDictVariantDefaultsKey = "zhDictVariant"
+
+    /// 读取上次保存的词库变体，校验仍在 `zhDictVariants` 列表内才返回；
+    /// 缺失或失效（旧版本写入的过时变体）时返回 nil，由调用方回退到默认。
+    private static func persistedZhDictVariant() -> String? {
+        guard let raw = UserDefaults.standard.string(forKey: zhDictVariantDefaultsKey),
+            zhDictVariants.contains(raw)
+        else { return nil }
+        return raw
+    }
+
     /// 运行时切换中文词库。失败返回 false，保留原 store 不变。
+    /// 成功时将变体写入 `UserDefaults`，供下次进程启动恢复。
     /// - Parameter variant: `zhDictVariants` 里的文件名前缀（不含 `.db`）
     @discardableResult
     public func switchZhDict(variant: String) -> Bool {
@@ -205,12 +220,13 @@ public class PinyinEngine {
         }
         zhStore = newStore
         currentZhDictVariant = variant
+        UserDefaults.standard.set(variant, forKey: Self.zhDictVariantDefaultsKey)
         return true
     }
 
-    /// 从 Bundle 资源加载 SQLite 词库
-    private func loadDictionaries() {
-        if let url = Bundle.module.url(forResource: "zh_dict", withExtension: "db") {
+    /// 从 Bundle 资源加载 SQLite 词库。`zhVariant` 由 init 校验后传入。
+    private func loadDictionaries(zhVariant: String) {
+        if let url = Bundle.module.url(forResource: zhVariant, withExtension: "db") {
             zhStore = DictionaryStore(path: url.path)
         }
         if let url = Bundle.module.url(forResource: "ja_dict", withExtension: "db") {
@@ -332,7 +348,7 @@ public class PinyinEngine {
 
         case .esc:
             // 若缓冲区里有已确认的 .text 项（compose 模式中已选字 / 首段确认后的状态），
-            // ESC 把它们提交并丢弃未确认的拼音，避免用户辛苦组的字白白丢失。
+            // ESC 把它们提交并丢弃未确认的拼音，避免用户已组好的文字无端丢失。
             // 缓冲区里只有拼音时维持原有「全部丢弃」语义。
             if composingItems.contains(where: { !$0.isEditable }) {
                 let confirmed = composingItems.filter { !$0.isEditable }
@@ -872,10 +888,10 @@ public class PinyinEngine {
             }
         }
 
-        // 8. Garbage 尾 fallback：用户敲了既不是音节也不是声母的「垃圾尾巴」
-        //    （典型是孤立韵母 u/i/v，如 wuwuu 末尾的 u），Conversion 与前缀匹配都跳过这种 case。
+        // 8. Garbage 尾 fallback：用户输入了既非音节也非声母的无效尾段
+        //    （典型是孤立韵母 u/i/v，如 wuwuu 末尾的 u），Conversion 与前缀匹配都跳过此类 case。
         //    用 syllables 部分组词，把每条候选 + remainder 原文拼成合成候选，
-        //    让用户至少能选到「中文+残留字符」的提交，避免因候选空被 handleSpace
+        //    使用户至少可选取「中文+残留字符」的提交，避免因候选空被 handleSpace
         //    回退为 commit 原始 ASCII 串。
         if result.isEmpty && !remainder.isEmpty && !remainderIsBareInitial
             && !defaultSyllables.isEmpty
