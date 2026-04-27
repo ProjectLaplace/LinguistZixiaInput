@@ -38,7 +38,7 @@
 		<string>Hani</string>
 	</array>
 	<key>tsInputMethodIconFileKey</key>
-	<string>MenuIconHansTemplate.tiff</string>
+		<string>MenuIconHans.pdf</string>
 	<key>ComponentInputModeDict</key>
 	<dict>
 		<key>tsInputModeListKey</key>
@@ -57,14 +57,12 @@
 				<true/>
 				<key>tsInputModeIsVisibleKey</key>
 				<true/>
-				<key>TISIntputModeLocalizedNameKey</key>
-				<string>Linguist Zixia Input</string>
 				<key>tsInputModeMenuIconFileKey</key>
-				<string>MenuIconHansTemplate.tiff</string>
+				<string>MenuIconHans.pdf</string>
 				<key>tsInputModeAlternateMenuIconFileKey</key>
-				<string>MenuIconHansTemplate.tiff</string>
+				<string>MenuIconHans.pdf</string>
 				<key>tsInputModePaletteIconFileKey</key>
-				<string>MenuIconHansTemplate.tiff</string>
+				<string>MenuIconHans.pdf</string>
 			</dict>
 		</dict>
 		<key>tsVisibleInputModeOrderedArrayKey</key>

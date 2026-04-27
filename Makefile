@@ -58,14 +58,16 @@ install: build ## 构建并安装到系统输入法目录
 
 LSREGISTER = /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
-# 让菜单栏代理重读 IME plist（图标、TISIconLabels 等），免去重启系统。
+# 让输入法 UI 代理重读 IME plist（图标、TISIconLabels 等），免去重启系统。
 # lsregister -f 强制刷新 LaunchServices 数据库里的 bundle 信息，
-# 然后重启 TextInputMenuAgent（菜单栏渲染）和 IME 进程本身。
+# 然后重启 TextInputMenuAgent（菜单栏）、
+# TextInputSwitcher（Ctrl-Space 输入源切换浮层）和 IME 进程本身。
 reload: ## 重读 IME plist 与图标，无需重启系统
 	-$(LSREGISTER) -f "$(INSTALL_DIR)/$(APP_NAME)" 2>/dev/null
 	-killall TextInputMenuAgent 2>/dev/null
+	-killall -9 TextInputSwitcher 2>/dev/null
 	-killall "Linguist Zixia Input" 2>/dev/null
-	@echo "Reloaded LaunchServices + TextInputMenuAgent"
+	@echo "Reloaded LaunchServices + TextInputMenuAgent + TextInputSwitcher"
 
 clean: ## 删除 build/ 产物
 	rm -rf $(BUILD_DIR)

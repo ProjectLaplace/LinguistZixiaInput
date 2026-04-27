@@ -102,7 +102,13 @@ benti|lun       本体论    本提论
 
 - [FEATURE.md](FEATURE.md) - 功能特性说明
 - [DESIGN.md](DESIGN.md) - 状态机设计蓝图
+- [docs/IMK_MENU_ICON.md](docs/IMK_MENU_ICON.md) - macOS IMK 菜单图标维护要求
+- [docs/IMK_TESTING.md](docs/IMK_TESTING.md) - IMK 自动化测试策略
 - [GEMINI.md](GEMINI.md) - 项目愿景与架构设计原则
+
+## 致谢
+
+感谢 [Squirrel](https://github.com/rime/squirrel)、[fcitx5-macos](https://github.com/fcitx-contrib/fcitx5-macos)、[Google Japanese Input / Mozc](https://github.com/google/mozc) 与 macOS 系统输入法为 IMK 菜单图标提供参考实现。
 
 ## 许可
 
