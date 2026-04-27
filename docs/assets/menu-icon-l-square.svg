@@ -1,20 +1,52 @@
-<svg width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <!-- 蒙版：白色区域保留，黑色区域镂空 -->
-    <mask id="knockout">
-      <rect width="26" height="26" rx="5" fill="white" />
+<svg width="22pt" height="16pt" viewBox="0 0 26 18" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    5:3 IMK menu icon variant based on the original square "[L]" design.
+    The outer badge fills the menu icon box. The inner symbol is uniformly
+    scaled into a centered 16x16 square, so the content keeps its square design
+    proportions instead of being stretched to the 5:3 canvas.
+  -->
+  <path
+    fill="black"
+    fill-rule="evenodd"
+    d="
+      M 4 0
+      H 22
+      A 4 4 0 0 1 26 4
+      V 14
+      A 4 4 0 0 1 22 18
+      H 4
+      A 4 4 0 0 1 0 14
+      V 4
+      A 4 4 0 0 1 4 0
+      Z
 
-      <!-- 镂空的方括号 [ ] -->
-      <g stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-        <path d="M 7 5 L 4 5 L 4 21 L 7 21" />
-        <path d="M 19 5 L 22 5 L 22 21 L 19 21" />
-      </g>
+      M 7.46 4.08
+      H 9.31
+      V 5.43
+      H 8.81
+      V 12.57
+      H 9.31
+      V 13.92
+      H 7.46
+      Z
 
-      <!-- 镂空的字母 L - 使用强力的几何线条 -->
-      <path d="M 9 7 L 9 19 L 16 19" stroke="black" stroke-width="2.8" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
-    </mask>
-  </defs>
+      M 16.69 4.08
+      H 18.54
+      V 13.92
+      H 16.69
+      V 12.57
+      H 17.19
+      V 5.43
+      H 16.69
+      Z
 
-  <!-- 基础图层：1:1 完美正方形胶囊 (Template Image) -->
-  <rect width="26" height="26" rx="5" fill="black" mask="url(#knockout)" />
+      M 10.54 5.31
+      H 12.26
+      V 11.46
+      H 14.85
+      V 13.18
+      H 10.54
+      Z
+    "
+  />
 </svg>

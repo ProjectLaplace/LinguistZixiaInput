@@ -17,7 +17,8 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-SRC="${ROOT_DIR}/docs/assets/menu-icon-zh.svg"
+# SRC="${ROOT_DIR}/docs/assets/menu-icon-zh.svg"
+SRC="${ROOT_DIR}/docs/assets/menu-icon-l-square.svg"
 DST="${ROOT_DIR}/Apps/LaplaceIME/LaplaceIME/MenuIconHans.pdf"
 
 FORBIDDEN_SVG='(<text|<mask|mask=|opacity|filter|clipPath|linearGradient|radialGradient|<image)'
