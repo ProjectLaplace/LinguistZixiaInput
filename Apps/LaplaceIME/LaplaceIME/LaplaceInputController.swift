@@ -344,8 +344,10 @@ class LaplaceInputController: IMKInputController {
         guard let chars = event.characters, let first = chars.first else { return nil }
 
         if first == "0" {
-            // 自定义短语触发器：缓冲区非空时把 0 当 letter 续 buffer（xl0 → 希腊字母候选），
-            // 缓冲区为空时返回 nil 让系统正常输入字符 0。详见 DESIGN.md §8.3。
+            // 自定义短语命名约定中借 0 充当紫光 `_` 的角色：当 buffer 中已有内容时，
+            // 将 0 视作字母追加至 buffer，使 xl0 一类短语名得以完整组装并触发短语候选。
+            // 0 不参与候选选词（选词键为 1-9），故可安全嵌入短语名而不与选词冲突。
+            // 当 buffer 为空时返回 nil，交由系统正常输入字符 0。
             return currentState.items.isEmpty ? nil : .letter(first)
         } else if first.isLetter {
             return .letter(first)

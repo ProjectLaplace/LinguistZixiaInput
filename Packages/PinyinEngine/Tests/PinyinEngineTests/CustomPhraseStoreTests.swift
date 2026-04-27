@@ -163,25 +163,25 @@ final class CustomPhraseStoreTests: XCTestCase {
         XCTAssertEqual(state.candidates.first, "^_^")
     }
 
-    func testEngineUnderscorePhrase() {
+    func testEnginePhraseWithZero() {
         let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
         let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
         let phrases = CustomPhraseStore(
             toml: """
                 [phrases]
-                xl_ = ['α', 'β', 'γ']
+                xl0 = ['α', 'β', 'γ']
                 """)
         let engine = PinyinEngine(
             zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
             customPhrases: phrases)
 
-        // Type "xl_" — underscore triggers custom phrase lookup
+        // Type "xl0" — 0 续入 buffer 后触发 phrase 候选
         var state = engine.process(.letter("x"))
         state = engine.process(.letter("l"))
-        state = engine.process(.letter("_"))
+        state = engine.process(.letter("0"))
         XCTAssertEqual(state.candidates.first, "α")
 
-        // Number key selects: xl_2 doesn't exist as phrase, so 2 selects candidate #2
+        // Number key selects: xl02 doesn't exist as phrase, so 2 selects candidate #2
         state = engine.process(.number(2))
         XCTAssertEqual(state.committedText, "β")
     }
@@ -192,20 +192,20 @@ final class CustomPhraseStoreTests: XCTestCase {
         let phrases = CustomPhraseStore(
             toml: """
                 [phrases]
-                sz_ = ['壹', '贰', '叁']
-                sz_1 = ['⒈', '⒉', '⒊']
+                sz0 = ['壹', '贰', '叁']
+                sz01 = ['⒈', '⒉', '⒊']
                 """)
         let engine = PinyinEngine(
             zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
             customPhrases: phrases)
 
-        // Type "sz_" — shows sz_ candidates
+        // Type "sz0" — shows sz0 candidates
         var state = engine.process(.letter("s"))
         state = engine.process(.letter("z"))
-        state = engine.process(.letter("_"))
+        state = engine.process(.letter("0"))
         XCTAssertEqual(state.candidates.first, "壹")
 
-        // Press 1 — appends to phrase name, now shows sz_1 candidates
+        // Press 1 — appends to phrase name (sz01 exists), now shows sz01 candidates
         state = engine.process(.number(1))
         XCTAssertEqual(state.candidates.first, "⒈")
 

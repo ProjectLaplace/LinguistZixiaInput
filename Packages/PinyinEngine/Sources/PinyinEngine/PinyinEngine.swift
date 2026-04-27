@@ -494,10 +494,10 @@ public class PinyinEngine {
 
     /// 处理数字选词
     private func handleNumber(_ index: Int) -> String? {
-        // 自定义短语模式：rawPinyin 含 _ 且追加数字后能匹配到短语时，
-        // 数字作为短语名的一部分（紫光惯例：sz_1、bq_2）。
-        // 否则正常选词（如 dw_ 展开后用数字从候选列表选择）。
-        if rawPinyin.contains("_") {
+        // 自定义短语续输模式：当 rawPinyin 中含有 0（作为短语名标识）且追加当前
+        // 数字键后能够匹配到已注册短语时，将数字作为短语名的一部分（如 sz0 + 1
+        // → sz01，用于输入带圈数字）；否则按常规选词逻辑处理。
+        if rawPinyin.contains("0") {
             let extended = rawPinyin.lowercased() + String(index)
             if customPhrases?.hasPhrase(extended) == true {
                 rawPinyin += String(index)
