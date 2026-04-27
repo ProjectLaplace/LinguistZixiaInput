@@ -4,6 +4,9 @@ PROJECT = Apps/LaplaceIME/LaplaceIME.xcodeproj
 SCHEME = LaplaceIME
 CONFIG = Release
 BUILD_DIR = $(CURDIR)/build
+# Serialize agent-triggered Xcode builds through one shared DerivedData cache.
+XCODEBUILD_LOCK = $(BUILD_DIR)/.xcodebuild.lock
+XCODEBUILD = tools/with_xcodebuild_lock.sh $(XCODEBUILD_LOCK) xcodebuild
 APP_NAME = Linguist Zixia Input.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(V),,-quiet)
@@ -43,7 +46,7 @@ bootstrap: ## 准备开发环境：初始化 submodule，生成所有打包词�
 # 默认采用 Release 配置：日常打字延迟更低、内存更小，且贴近终端用户体验。
 # 调试崩溃或需触发 assert / assertionFailure 时切回 Debug：make install CONFIG=Debug
 build: bundle-alt-dicts ## 构建 IME（默认 Release；CONFIG=Debug 切换至 Debug）
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
+	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
 		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) build
 
 install: build ## 构建并安装到系统输入法目录
@@ -75,7 +78,7 @@ dict-release: ## 重新生成 production zh_dict
 	python3 tools/build_dict_db.py preset default
 
 release: $(DICT_DB) ## 构建 Release 并注入 MARKETING_VERSION
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
+	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
 		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) \
 		MARKETING_VERSION=$(VERSION_NUMBER) \
 		build
