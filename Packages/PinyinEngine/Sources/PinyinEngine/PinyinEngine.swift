@@ -498,7 +498,8 @@ public class PinyinEngine {
         // 数字键后能够匹配到已注册短语时，将数字作为短语名的一部分（如 sz0 + 1
         // → sz01，用于输入带圈数字）；否则按常规选词逻辑处理。
         if rawPinyin.contains("0") {
-            let extended = rawPinyin.lowercased() + String(index)
+            // 短语名大小写敏感（xl0 与 XL0 是两个独立短语），不做 lowercase 归一
+            let extended = rawPinyin + String(index)
             if customPhrases?.hasPhrase(extended) == true {
                 rawPinyin += String(index)
                 rebuildFromRawPinyin()
@@ -722,7 +723,11 @@ public class PinyinEngine {
         // 0. 自定义短语：rawPinyin 完全匹配短语名时，短语候选置顶
         let cleanPinyin = Self.normalizePinyin(
             rawPinyin.lowercased().replacingOccurrences(of: "'", with: ""))
-        let customResults = customPhrases?.phrases(for: cleanPinyin) ?? []
+        // 短语名大小写敏感（xl0 与 XL0 是两个独立短语），phrase 查询不走拼音的
+        // lowercase 归一链，沿用原始 rawPinyin 仅做 ü 规范化与撇号剥离
+        let phraseKey = Self.normalizePinyin(
+            rawPinyin.replacingOccurrences(of: "'", with: ""))
+        let customResults = customPhrases?.phrases(for: phraseKey) ?? []
 
         // 1. 整串精确匹配（去掉 apostrophe，规范化 ü）
         var wholeMatches = store?.candidates(for: cleanPinyin) ?? []

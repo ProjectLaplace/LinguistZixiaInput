@@ -163,6 +163,33 @@ final class CustomPhraseStoreTests: XCTestCase {
         XCTAssertEqual(state.candidates.first, "^_^")
     }
 
+    func testEnginePhraseCaseSensitive() {
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
+        let phrases = CustomPhraseStore(
+            toml: """
+                [phrases]
+                xl0 = ['α', 'β', 'γ']
+                XL0 = ['Α', 'Β', 'Γ']
+                """)
+        let engine = PinyinEngine(
+            zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
+            customPhrases: phrases)
+
+        // Lowercase input → lowercase Greek
+        var state = engine.process(.letter("x"))
+        state = engine.process(.letter("l"))
+        state = engine.process(.letter("0"))
+        XCTAssertEqual(state.candidates.first, "α")
+        state = engine.process(.esc)
+
+        // Uppercase input → uppercase Greek (must NOT collapse to xl0)
+        state = engine.process(.letter("X"))
+        state = engine.process(.letter("L"))
+        state = engine.process(.letter("0"))
+        XCTAssertEqual(state.candidates.first, "Α")
+    }
+
     func testEnginePhraseWithZero() {
         let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
         let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
