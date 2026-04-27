@@ -53,7 +53,7 @@ make test
 # 4. 运行 Conversion 回归测试
 make eval
 
-# 5. 构建并安装输入法
+# 5. 构建并安装输入法（默认 Release；调试时可加 CONFIG=Debug）
 make install
 ```
 
