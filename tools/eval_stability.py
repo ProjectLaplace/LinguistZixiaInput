@@ -2,19 +2,19 @@
 """组合稳定性分析：检查"短串分段 + 拼接 vs 长串整体"两种输入在同一引擎参数
 下的结果是否一致。
 
-背景：经典失败模式——`zixia` → 紫霞 对，`shurufa` → 输入法 对，但合起来
+背景：经典失败模式：`zixia` → 紫霞 对，`shurufa` → 输入法 对，但合起来
 `zixiashurufa` → 仔细啊输入发 错。单段搜索空间小、多字词能稳胜；长串里高频
-单字填充路径会"碾压"低频多字词路径。这不是词典问题，也不是单段评分问题，
+单字填充路径会「碾压」低频多字词路径。这不是词典问题，也不是单段评分问题，
 是**组合层面**的问题。
 
 对 fixture 里每个带 `|` 分段的 case：
-  1. 各段单独跑 pinyin-eval，拼接结果 A
-  2. 长串整体跑 pinyin-eval，得到 B
+  1. 各段单独运行 pinyin-eval，拼接结果 A
+  2. 长串整体运行 pinyin-eval，得到 B
   3. 比较 A vs B：
      - A == B：**stable**（不管对错，算法至少内部自洽）
-     - A != B：**unstable**（组合把答案搞坏了——我们关心的 bug 模式）
+     - A != B：**unstable**（组合使答案出错，我们关心的 bug 模式）
 
-再叠加"长串是否 == expected"的维度，把 stable 分成 correct / wrong。
+再叠加「长串是否 == expected」的维度，把 stable 分成 correct / wrong。
 
 与 eval_sweep.py（跨参数）、eval_dicts.py（跨词库）同属 eval 套件，本工具
 在**单一参数 + 单一词库**下做内部一致性分析。
@@ -49,7 +49,7 @@ def find_project_root() -> Path:
 
 def parse_cases(path: Path) -> list[tuple[str, list[str], str]]:
     """Parse cases file. Returns list of (raw_pinyin, segments, expected) for
-    cases that contain `|` splits. Single-segment cases are skipped — they
+    cases that contain `|` splits. Single-segment cases are skipped; they
     have nothing to compose."""
     cases = []
     with open(path, encoding="utf-8") as f:
@@ -84,7 +84,7 @@ def run_batch(
         "w", suffix=".cases", delete=False, encoding="utf-8"
     ) as f:
         for p in pinyins:
-            # Dummy expected — we only read actual.text from the JSON output.
+            # Dummy expected: we only read actual.text from the JSON output.
             f.write(f"{p} PLACEHOLDER\n")
         tmp_path = f.name
 
@@ -268,11 +268,11 @@ def main():
             print(f"    full:     `{e['long_result']}`")
             print()
 
-    _dump("Composition Bug — segments give right answer, full form breaks it",
+    _dump("Composition Bug: segments give right answer, full form breaks it",
           composition_bug)
-    _dump("Segment Artifact — full form right, segments alone wrong",
+    _dump("Segment Artifact: full form right, segments alone wrong",
           segment_artifact)
-    _dump("Both Wrong — different wrong answers at different scales",
+    _dump("Both Wrong: different wrong answers at different scales",
           both_wrong)
 
     if stable_wrong:

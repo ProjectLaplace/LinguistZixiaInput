@@ -54,14 +54,14 @@ final class PinnedLookupTests: XCTestCase {
     }
 
     func testUserOverridesCandidatesSkippingSys() {
-        // user 与 candidates 重复但 sys 没该项 —— 仍然只保留在 user 位置。
+        // user 与 candidates 重复但 sys 没该项：仍然只保留在 user 位置。
         XCTAssertEqual(
             PinnedLookupHelper.merge(user: ["大"], sys: ["啊"], candidates: ["打", "大"]),
             ["大", "啊", "打"])
     }
 
     func testWithinSourceDuplicatesKeepFirst() {
-        // 同一数组内有重复项 —— 保留首次出现的。
+        // 同一数组内有重复项：保留首次出现的。
         XCTAssertEqual(
             PinnedLookupHelper.merge(
                 user: ["的", "地", "的"],

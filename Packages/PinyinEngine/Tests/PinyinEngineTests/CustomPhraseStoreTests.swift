@@ -144,7 +144,7 @@ final class CustomPhraseStoreTests: XCTestCase {
             zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
             customPhrases: phrases)
 
-        // Type "addr" — custom phrase should be first candidate
+        // Type "addr": custom phrase should be first candidate
         var state = engine.process(.letter("a"))
         state = engine.process(.letter("d"))
         state = engine.process(.letter("d"))
@@ -155,7 +155,7 @@ final class CustomPhraseStoreTests: XCTestCase {
         state = engine.process(.space)
         XCTAssertEqual(state.committedText, "上海市长宁区")
 
-        // Type "haha" — custom phrase should be first candidate
+        // Type "haha": custom phrase should be first candidate
         state = engine.process(.letter("h"))
         state = engine.process(.letter("a"))
         state = engine.process(.letter("h"))
@@ -202,7 +202,7 @@ final class CustomPhraseStoreTests: XCTestCase {
             zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
             customPhrases: phrases)
 
-        // Type "xl0" — 0 续入 buffer 后触发 phrase 候选
+        // Type "xl0": 0 续入 buffer 后触发 phrase 候选
         var state = engine.process(.letter("x"))
         state = engine.process(.letter("l"))
         state = engine.process(.letter("0"))
@@ -226,13 +226,13 @@ final class CustomPhraseStoreTests: XCTestCase {
             zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
             customPhrases: phrases)
 
-        // Type "sz0" — shows sz0 candidates
+        // Type "sz0": shows sz0 candidates
         var state = engine.process(.letter("s"))
         state = engine.process(.letter("z"))
         state = engine.process(.letter("0"))
         XCTAssertEqual(state.candidates.first, "壹")
 
-        // Press 1 — appends to phrase name (sz01 exists), now shows sz01 candidates
+        // Press 1: appends to phrase name (sz01 exists), now shows sz01 candidates
         state = engine.process(.number(1))
         XCTAssertEqual(state.candidates.first, "⒈")
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env swift
 //
-// ime-diag.swift — Diagnostic tool for LaplaceIME window leak detection
+// ime-diag.swift: Diagnostic tool for LaplaceIME window leak detection
 //
 // Usage:
 //   swift tools/ime-diag.swift          # Show CursorUIViewService window count once

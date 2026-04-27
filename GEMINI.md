@@ -1,4 +1,4 @@
-# Linguist Zixia Input | 紫霞输入法 — 项目愿景与架构设计
+# Linguist Zixia Input | 紫霞输入法：项目愿景与架构设计
 
 ## 1. 项目愿景与核心定义
 

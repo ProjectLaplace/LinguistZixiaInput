@@ -152,7 +152,7 @@ final class PinyinEngineTests: XCTestCase {
         // shijian (2 syllables): too short, no first-word injection
         let state = type("shijian")
         XCTAssertEqual(state.candidates.first, "时间")
-        // The 2nd candidate should NOT be the first word 「时」 — that path is only
+        // The 2nd candidate should NOT be the first word 「时」; that path is only
         // for ≥4 syllable input. (「时」 may still appear as a first-segment
         // supplementary candidate later in the list, but not at index 1.)
         if state.candidates.count >= 2 {
@@ -384,7 +384,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testAutoSplitLongPhraseComposition() {
-        // "kaifajishu" — no whole-string match, but per-syllable composition works
+        // "kaifajishu": no whole-string match, but per-syllable composition works
         let state = type("kaifajishu")
         // Should auto-split into multiple pinyin segments
         XCTAssertTrue(state.items.count > 1, "Should auto-split into multiple segments")
@@ -395,7 +395,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testGreedyPhraseComposition() {
-        // "jianchayixia" — Conversion should match jiancha(检查) + yixia(一下)
+        // "jianchayixia": Conversion should match jiancha(检查) + yixia(一下)
         // not jianchayi(检查仪) + xia(下) or per-syllable jian+cha+yi+xia
         let state = type("jianchayixia")
         XCTAssertTrue(
@@ -407,20 +407,20 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testWholeStringMatchTakesPriorityOverComposition() {
-        // "shijian" has whole-string match 时间 — should be first, not composed 是见
+        // "shijian" has whole-string match 时间: should be first, not composed 是见
         let state = type("shijian")
         XCTAssertEqual(state.candidates.first, "时间")
     }
 
     func testCompositionWithPartialRemainderSkipped() {
-        // "kaifaj" — remainder "j" is incomplete, composition requires no remainder
+        // "kaifaj": remainder "j" is incomplete, composition requires no remainder
         let state = type("kaifaj")
         // Should not contain a composed candidate with dangling "j"
         XCTAssertFalse(state.candidates.isEmpty, "Should have prefix match candidates")
     }
 
     func testCompositionFallsBackToSingleChars() {
-        // "kaifajishu" — whole-string match exists (开发技术), so it takes priority
+        // "kaifajishu": whole-string match exists (开发技术), so it takes priority
         // If it didn't, Conversion would produce 开发+技术 over 开+发+技+术
         let state = type("kaifajishu")
         XCTAssertTrue(
@@ -429,7 +429,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testCompositionMultiWordPhrase() {
-        // "wanquanhushuo" — Conversion should compose wanquan(完全) + hushuo(胡说) = 完全胡说
+        // "wanquanhushuo": Conversion should compose wanquan(完全) + hushuo(胡说) = 完全胡说
         let state = type("wanquanhushuo")
         XCTAssertTrue(
             state.candidates.contains("完全胡说"),
@@ -437,7 +437,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testConversionCrossesSyllableBoundary() {
-        // "jianchayixiane" — two-stage approach splits "xian"+"e" → 检查仪限额
+        // "jianchayixiane": two-stage approach splits "xian"+"e" → 检查仪限额
         // Conversion should prefer "xia"+"ne" because it enables 一下+呢 → 检查一下呢
         let state = type("jianchayixiane")
         XCTAssertTrue(
@@ -446,7 +446,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testConversionPrefersHighQualityPhrases() {
-        // "shishenmene" — 失神+门额 has two multi-char words but low avg quality;
+        // "shishenmene": 失神+门额 has two multi-char words but low avg quality;
         // 是+什么+呢 has one high-quality multi-char word (什么) and should win.
         let state = type("shishenmene")
         XCTAssertTrue(
@@ -455,7 +455,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testConversionWordCoveragePreventsSingleCharFiller() {
-        // "jingquepipei" — 景区+饿+匹配 has a single-char filler (饿);
+        // "jingquepipei": 景区+饿+匹配 has a single-char filler (饿);
         // 精确+匹配 has full wordCoverage and should win.
         let state = type("jingquepipei")
         XCTAssertEqual(
@@ -464,7 +464,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testConversionFewerSegmentsPreferred() {
-        // "shenmetamadejiaojingxi" — "jiao" should NOT be split into "ji+a+o"
+        // "shenmetamadejiaojingxi": "jiao" should NOT be split into "ji+a+o"
         // because fewer segments is better when wordCoverage is equal
         let state = type("shenmetamadejiaojingxi")
         XCTAssertFalse(state.candidates.isEmpty)
@@ -480,7 +480,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testConversionLowFreqMultiCharNotCountedAsCoverage() {
-        // "shenmetamadejiaojingxi" — 的脚(dejiao, freq=5555) is a dictionary artifact
+        // "shenmetamadejiaojingxi": 的脚(dejiao, freq=5555) is a dictionary artifact
         // It should not win the path over 叫 (jiao as a single char), regardless of
         // whether 的脚 happens to clear the wordNoiseFloor under the current config.
         // So the result should use 叫 (jiao alone) not 脚 (via 的脚 compound)
@@ -492,7 +492,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testAutoSplitPartialInput() {
-        // "shij" — "shi" is complete, "j" is partial remainder
+        // "shij": "shi" is complete, "j" is partial remainder
         let state = type("shij")
         XCTAssertEqual(state.items.count, 2)
         XCTAssertEqual(state.items[0], .pinyin("shi"))
@@ -573,7 +573,7 @@ final class PinyinEngineTests: XCTestCase {
     // MARK: - Prefix Matching (前缀匹配)
 
     func testPrefixMatchWithPartialSyllable() {
-        // "xiangf" — "xiang" + "f" (incomplete), should prefix-match "xiangfa" → 想法
+        // "xiangf": "xiang" + "f" (incomplete), should prefix-match "xiangfa" → 想法
         let state = type("xiangf")
         XCTAssertFalse(
             state.candidates.isEmpty, "xiangf should produce candidates via prefix match")
@@ -581,7 +581,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testExactMatchTakesPriorityOverPrefix() {
-        // "shi" is a complete syllable with exact matches — should not need prefix fallback
+        // "shi" is a complete syllable with exact matches: should not need prefix fallback
         let state = type("shi")
         XCTAssertEqual(state.candidates.first, "是")
     }
@@ -635,14 +635,14 @@ final class PinyinEngineTests: XCTestCase {
         // Type "shijian", select a first-segment candidate (e.g., "是")
         // Should confirm "是" as .text and continue composing "jian"
         let state = type("shijian")
-        // Find "是" in candidates — it should be a first-segment candidate
+        // Find "是" in candidates: it should be a first-segment candidate
         guard let idx = state.candidates.firstIndex(of: "是") else {
             XCTFail("是 should be in candidates for shijian")
             return
         }
         // Select it (number keys are 1-based)
         let afterSelect = number(idx + 1)
-        // Should NOT commit — buffer should have confirmed text + remaining pinyin
+        // Should NOT commit: buffer should have confirmed text + remaining pinyin
         XCTAssertNil(afterSelect.committedText)
         // Buffer should contain confirmed "是" followed by composing pinyin for "jian"
         XCTAssertTrue(
@@ -675,7 +675,7 @@ final class PinyinEngineTests: XCTestCase {
 
     func testExactMatchSkipsConversion() {
         // "shijian" has exact matches (时间, 世间, etc.)
-        // Conversion should NOT be triggered — candidates should be exact matches
+        // Conversion should NOT be triggered: candidates should be exact matches
         // plus first-segment alternatives, NOT a Conversion-composed string
         let state = type("shijian")
         // The first candidate should be an exact match, not a Conversion composition
@@ -704,7 +704,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testApostropheSeparationCandidates() {
-        // "xi'an" — user explicitly separates into xi + an
+        // "xi'an": user explicitly separates into xi + an
         // Candidates should NOT include single-char words like 先/现 (those match "xian" as one syllable)
         // Should include composed "西安" (西 + 安)
         let state = type("xi'an")
@@ -719,7 +719,7 @@ final class PinyinEngineTests: XCTestCase {
     // MARK: - Punctuation: Confirm + Commit
 
     func testPunctuationEmptyBufferCommitsFullWidth() {
-        // No active input — comma should directly commit full-width comma
+        // No active input: comma should directly commit full-width comma
         let state = engine.process(.punctuation(","))
         XCTAssertEqual(state.committedText, "，")
         XCTAssertTrue(state.items.isEmpty)
@@ -791,7 +791,7 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(committed.committedText, "刚才的")
     }
 
-    // MARK: - Garbage-tail fallback (孤立韵母兜底)
+    // MARK: - Garbage-tail fallback (孤立韵母回退)
 
     // 用户敲了既不是音节也不是声母的「垃圾尾巴」（如 wuwuu 末尾的 u），
     // Conversion 与前缀匹配都失败时，引擎应基于前面合法音节组词，
@@ -817,7 +817,7 @@ final class PinyinEngineTests: XCTestCase {
     }
 
     func testGarbageTailSpaceCommitsTopCandidateNotRawAscii() {
-        // 关键回归保护：以前没候选时 space 兜底 commit 原 ASCII「wuwuu」，是 bug。
+        // 关键回归保护：以前没候选时 space 回退为 commit 原 ASCII「wuwuu」，是 bug。
         // 现在 fallback 提供候选，space 应 commit 候选（中文+u），不再 commit 原文。
         type("wuwuu")
         let committed = space()

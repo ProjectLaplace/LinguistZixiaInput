@@ -7,7 +7,7 @@
 # - 不用 --reference：该选项在源仓库 shallow 时报错，本仓库 submodule 均为 shallow。
 # - 不用 file:// 前缀：git 2.38+ 默认禁 file transport（CVE-2022-39253）；
 #   绝对路径走 filesystem-direct clone，不经 file transport。
-# - protocol.file.allow=always 作为兜底，避免 git 内部归一化为 file:// 时被阻断。
+# - protocol.file.allow=always 作为 fallback，避免 git 内部归一化为 file:// 时被阻断。
 set -euo pipefail
 
 git_dir=$(realpath "$(git rev-parse --git-dir)")

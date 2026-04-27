@@ -143,7 +143,7 @@ final class PinnedWordStoreTests: XCTestCase {
     }
 
     func testUserOverridesSysSameWord() throws {
-        // 同词同拼音在两层各出现一次 —— 合并后只出现一次（用户层位置）。
+        // 同词同拼音在两层各出现一次：合并后只出现一次（用户层位置）。
         let sysPath = try writeTOML(
             """
             [pinned]
@@ -179,7 +179,7 @@ final class PinnedWordStoreTests: XCTestCase {
     }
 
     func testPinCopiesSysOnlyWordIntoUser() throws {
-        // sys 层有「重工」，user 层没有 —— pin 后应在 user 层队首出现。
+        // sys 层有「重工」，user 层没有：pin 后应在 user 层队首出现。
         let sysPath = try writeTOML(
             """
             [pinned]
@@ -254,7 +254,7 @@ final class PinnedWordStoreTests: XCTestCase {
 
         let firstDump = try String(contentsOfFile: userPath, encoding: .utf8)
 
-        // 重载并触发一次原子写回（pin 一个已在队首的项 —— 内容不变但会刷盘）
+        // 重载并触发一次原子写回（pin 一个已在队首的项，内容不变但会刷盘）
         let reloaded = PinnedWordStore(sysPath: nil, userPath: userPath)
         reloaded.pin("重工", forPinyin: "zhonggong")
         let secondDump = try String(contentsOfFile: userPath, encoding: .utf8)

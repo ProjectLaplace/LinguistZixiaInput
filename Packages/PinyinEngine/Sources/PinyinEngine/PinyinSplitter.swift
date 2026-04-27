@@ -199,7 +199,7 @@ public enum PinyinSplitter {
                 continue
             }
 
-            // Can't split fully — find the longest prefix that can be split
+            // Can't split fully; find the longest prefix that can be split
             // and treat the rest as remainder
             for prefixLen in stride(from: chars.count - 1, through: 0, by: -1) {
                 if prefixLen == 0 {

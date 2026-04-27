@@ -139,7 +139,7 @@ public class PinyinEngine {
     /// 可触发「确认首选 + 提交标点」的标点字符集。
     /// 当缓冲区有候选时，这些字符会先确认首选候选再追加全角标点一并提交；
     /// 缓冲区为空时，直接提交全角标点。
-    /// 注意：' 不在此集合中——有活跃拼音时作为分隔符，由 InputController 层特殊处理。
+    /// 注意：' 不在此集合中：有活跃拼音时作为分隔符，由 InputController 层特殊处理。
     public static let confirmPunctuationChars: Set<Character> = [
         ",", ".", ";", ":", "?", "!", "\\",
         "(", ")", "{", "}", "<", ">", "\"",
@@ -686,7 +686,7 @@ public class PinyinEngine {
                 composingItems.append(.pinyin(String(rawPinyin[offset..<end])))
                 offset = end
             }
-            // Conversion 未覆盖的尾部（理论上不应发生，但兜底）
+            // Conversion 未覆盖的尾部（理论上不应发生，此处保留作为 fallback）
             if offset < rawPinyin.endIndex {
                 while offset < rawPinyin.endIndex && rawPinyin[offset] == "'" {
                     offset = rawPinyin.index(after: offset)
@@ -724,7 +724,7 @@ public class PinyinEngine {
         updateCandidatesWholeString(defaultSyllables: defaultSyllables, remainder: remainder)
     }
 
-    /// 更新候选词：精确匹配 → Conversion 组词 → 首段补充候选 → 前缀 → 末段兜底
+    /// 更新候选词：精确匹配 → Conversion 组词 → 首段补充候选 → 前缀 → 末段 fallback
     private func updateCandidatesWholeString(defaultSyllables: [String], remainder: String) {
         let _ucStart = CFAbsoluteTimeGetCurrent()
         let store = (currentMode == .pinyin) ? zhStore : jaStore
@@ -849,7 +849,7 @@ public class PinyinEngine {
             }
         }
 
-        // 6. 前缀匹配兜底：精确匹配和 Conversion 都无结果时，用前缀匹配补充候选。
+        // 6. 前缀匹配 fallback：精确匹配和 Conversion 都无结果时，用前缀匹配补充候选。
         //    两种触发场景：
         //    a) 音节不完整（remainder 不为空），如 b → ba, bai, ban... / xiangf → xiangfa...
         //    b) 单音节但词库无精确条目（如 n 是合法音节但词库无 pinyin='n'）
@@ -872,11 +872,11 @@ public class PinyinEngine {
             }
         }
 
-        // 8. Garbage 尾兜底：用户敲了既不是音节也不是声母的「垃圾尾巴」
+        // 8. Garbage 尾 fallback：用户敲了既不是音节也不是声母的「垃圾尾巴」
         //    （典型是孤立韵母 u/i/v，如 wuwuu 末尾的 u），Conversion 与前缀匹配都跳过这种 case。
         //    用 syllables 部分组词，把每条候选 + remainder 原文拼成合成候选，
         //    让用户至少能选到「中文+残留字符」的提交，避免因候选空被 handleSpace
-        //    兜底成 commit 原始 ASCII 串。
+        //    回退为 commit 原始 ASCII 串。
         if result.isEmpty && !remainder.isEmpty && !remainderIsBareInitial
             && !defaultSyllables.isEmpty
         {
@@ -1111,7 +1111,7 @@ public class PinyinEngine {
     ///   - 缓冲区为空、含已确认文本段、或处于 Tab 聚焦状态
     ///   - 候选索引越界
     /// 单字候选 → 走 PinnedCharStore；多字候选 → 走 PinnedWordStore。
-    /// 写入后立即重算候选，让 IMK 拿到新的列表（pinned 项会在顶）。
+    /// 写入后立即重算候选，让 IMK 获取新的列表（pinned 项会置顶）。
     @discardableResult
     public func pinCandidate(atIndex index: Int) -> Bool {
         guard let pinyin = pinnableContext(forIndex: index) else { return false }
@@ -1127,7 +1127,7 @@ public class PinyinEngine {
     }
 
     /// 把第 N 个候选设为 active（不提交）。配合 `[` `]` 在任意候选上取首/末字。
-    /// 索引越界返回 false，调用方可据此走兜底路径（例如让 ⇧<num> 落到标点）。
+    /// 索引越界返回 false，调用方可据此进入 fallback 路径（例如让 ⇧<num> 归入标点）。
     @discardableResult
     public func setActiveCandidate(atIndex index: Int) -> Bool {
         guard index >= 0 && index < candidates.count else { return false }

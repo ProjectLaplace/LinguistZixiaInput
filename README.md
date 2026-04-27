@@ -1,6 +1,6 @@
 # Linguist Zixia Input | 紫霞输入法
 
-The deterministic pinyin input method engine and native macOS client. Fixed candidate positions, predictable behavior — designed for muscle memory and flow state. An attempt to recreate the unique experience of Ziguang Pinyin 2.3 from 25 years ago.
+The deterministic pinyin input method engine and native macOS client. Fixed candidate positions and predictable behavior, designed for muscle memory and flow state. An attempt to recreate the unique experience of Ziguang Pinyin 2.3 from 25 years ago.
 
 确定性拼音输入法引擎及 macOS 原生客户端。候选字词位置固定、行为可预测，追求肌肉记忆与心流体验。重现 25 年前紫光拼音输入法 2.3 独特体验的尝试。
 
@@ -17,7 +17,7 @@ The deterministic pinyin input method engine and native macOS client. Fixed cand
 - **视觉稳定性**：候选栏宽度固定、布局不跳动，减少不必要的视觉打扰。
 - **最少交互**：通过盲打和智能组词一次成功，减少选字、编辑、删除的操作。
 
-不打扰，少交互——让输入法退到意识之外，保持思考的专注与心流。
+不打扰，少交互：让输入法退到意识之外，保持思考的专注与心流。
 
 ## 构建
 

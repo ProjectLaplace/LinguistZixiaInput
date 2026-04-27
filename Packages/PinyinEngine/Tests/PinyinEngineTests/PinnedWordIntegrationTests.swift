@@ -121,7 +121,7 @@ final class PinnedWordIntegrationTests: XCTestCase {
         let state = type(engine, "cihui")
         XCTAssertEqual(state.candidates.first, "辞汇")
 
-        // 取消 pin —— 由于这里是 user-only 测试 store（init(toml:) 没有 sys 层），
+        // 取消 pin：由于这里是 user-only 测试 store（init(toml:) 没有 sys 层），
         // unpin 后 store 内不再有该词，候选列表回到 dict 默认顺序「词汇」。
         XCTAssertTrue(engine.unpinCandidate(atIndex: 0))
         _ = engine.process(.esc)

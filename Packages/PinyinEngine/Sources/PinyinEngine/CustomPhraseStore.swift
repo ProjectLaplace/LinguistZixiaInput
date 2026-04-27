@@ -84,7 +84,7 @@ public class CustomPhraseStore {
 
             // Determine value type and parse
             if rawValue.hasPrefix("[") {
-                // Array value — may span multiple lines
+                // Array value: may span multiple lines
                 let (array, consumed) = parseArray(lines: lines, startLine: i, afterEqual: rawValue)
                 let existing = result[key] ?? []
                 result[key] = existing + array
@@ -147,7 +147,7 @@ public class CustomPhraseStore {
             lineIdx += 1
         }
 
-        // No closing ''' found — take what we have
+        // No closing ''' found; take what we have
         return (parts.joined(separator: "\n"), lines.count - startLine)
     }
 

@@ -104,13 +104,13 @@ final class PinnedCharStoreTests: XCTestCase {
             zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
             pinnedChars: pinned)
 
-        // Type "de" — pinned chars should be at the front
+        // Type "de": pinned chars should be at the front
         var state = engine.process(.letter("d"))
         state = engine.process(.letter("e"))
         XCTAssertTrue(state.candidates.count >= 3)
         XCTAssertEqual(Array(state.candidates.prefix(3)), ["的", "地", "得"])
 
-        // Type just "d" — abbreviated pinyin pinned chars
+        // Type just "d": abbreviated pinyin pinned chars
         _ = engine.process(.esc)
         state = engine.process(.letter("d"))
         XCTAssertTrue(state.candidates.count >= 4)
@@ -160,7 +160,7 @@ final class PinnedCharStoreTests: XCTestCase {
     }
 
     func testUserOverridesSysSameChar() throws {
-        // 同字同拼音在两层各出现一次 —— 合并后只出现一次（用户层位置）。
+        // 同字同拼音在两层各出现一次：合并后只出现一次（用户层位置）。
         let sysPath = try writeTOML(
             """
             [pinned]
@@ -211,7 +211,7 @@ final class PinnedCharStoreTests: XCTestCase {
     }
 
     func testPinCopiesSysOnlyCharIntoUser() throws {
-        // sys 层有「得」，user 层没有 —— pin 后应在 user 层队首出现。
+        // sys 层有「得」，user 层没有：pin 后应在 user 层队首出现。
         let sysPath = try writeTOML(
             """
             [pinned]

@@ -24,7 +24,7 @@ class LaplaceInputController: IMKInputController {
     private var shiftPressedAlone = false
     /// Shift 按下的时间戳（用于过滤组合键长按）
     /// Workaround: WezTerm 不会将 Shift+Enter 等组合键的 keyDown 转发给 IMK，
-    /// 导致 shiftPressedAlone 无法被清除。用时间窗口兜底，比修 WezTerm 快。
+    /// 导致 shiftPressedAlone 无法被清除。用时间窗口作为 fallback，比修 WezTerm 容易。
     private var shiftDownTime: TimeInterval = 0
     /// Shift 单击的最大时长（秒），超过视为组合键长按
     private static let shiftMaxDuration: TimeInterval = 0.3
@@ -118,7 +118,7 @@ class LaplaceInputController: IMKInputController {
         }
 
         // 方向键事件本身带有 .function 和 .numericPad 两个设备标志位（NSEvent
-        // 用以标记键的物理位置——功能键区或数字键盘——的元数据，并非用户按下的
+        // 用以标记键的物理位置，即功能键区或数字键盘的元数据，并非用户按下的
         // 修饰键）。这两位都属于 deviceIndependentFlagsMask 范围，必须在此处
         // 减去，否则方向键会被下方的修饰键守卫拦截。
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -158,7 +158,7 @@ class LaplaceInputController: IMKInputController {
         }
 
         // ⇧<1-9>: 把候选第 N 项设为 active（不提交，[ ] 后续在它上面动）。
-        // 索引越界（位数超过当前候选数）落空，让事件继续走标点路径，保留 !@#$ 等的输入。
+        // 索引越界（位数超过当前候选数）落空，让事件继续按标点路径处理，保留 !@#$ 等的输入。
         if modifiers == .shift, let digit = digitFromEvent(event) {
             let globalIndex = pageOffset + digit - 1
             if globalIndex < currentState.candidates.count,
@@ -501,28 +501,28 @@ class LaplaceInputController: IMKInputController {
     private func updateCandidates() {
         let window = Self.candidatesWindow
         if currentState.items.isEmpty {
-            // Buffer cleared — hide the window
+            // Buffer cleared: hide the window
             window.hide()
             imkVisualIndex = 0
         } else if !currentState.candidates.isEmpty {
-            // New candidates available — update and show
+            // New candidates available: update and show
             window.update()
             // window.update() 会把 IMK 内部 selection 重置回 0（vChewing v3.4.9 reloadData 里印证）
             imkVisualIndex = 0
             window.show()
             applyActiveCandidateHighlight(window: window)
         }
-        // Buffer non-empty but no candidates (partial syllable) — keep showing previous candidates
+        // Buffer non-empty but no candidates (partial syllable): keep showing previous candidates
     }
 
     /// 在 IMK 候选窗里把 activeCandidateIndex 对应的格子高亮（IMK 内置的 selection 游标）。
     /// 仅对当前页可见的候选有效。
     ///
     /// 实现机制：公开 API `selectCandidate(withIdentifier:)` 在
-    /// `kIMKSingleRowSteppingCandidatePanel` 上**不刷新视觉高亮**——它会改
+    /// `kIMKSingleRowSteppingCandidatePanel` 上**不刷新视觉高亮**：它会改
     /// `selectedCandidate()` 的返回值，但 panel 本身不重绘，疑似 framework bug。
     /// 唯一可行的视觉同步路径，是调用 `IMKCandidates` 继承自 `NSResponder` 的
-    /// `moveLeft:` / `moveRight:`，即候选窗自身处理方向键时所走的同一条代码——
+    /// `moveLeft:` / `moveRight:`，即候选窗自身处理方向键时所走的同一条代码：
     /// 既然按 → 时 panel 会刷新视觉，直接调用 `moveRight:` 亦然。因此本地维护
     /// `imkVisualIndex` 跟踪当前位置，按差量调用 move。`window.update()` 会将
     /// IMK 内部 selection 重置为 0，调用方需相应归零。
@@ -643,7 +643,7 @@ class LaplaceIndicator {
     }
 
     /// Glitch 记录反馈：复用 LP 指示器位置，短暂变绿显示 ● 半秒后恢复。
-    /// 不 hide 面板——用户通常仍在组合中，下一个按键的 show() 会保持面板在位。
+    /// 不 hide 面板：用户通常仍在组合中，下一个按键的 show() 会保持面板在位。
     func showLogged(near cursorRect: NSRect) {
         let container = panel.contentView!
         label.stringValue = "●"

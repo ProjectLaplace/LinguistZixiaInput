@@ -7,7 +7,7 @@ import Foundation
 /// - `#` 行内注释
 ///
 /// 中文词不含特殊字符，所以不需要支持转义；保持实现尽可能小。
-/// 调用方拿到 `[String: [String]]` 后按各自语义解读：
+/// 调用方获取 `[String: [String]]` 后按各自语义解读：
 /// - `PinnedCharStore` 把单字符串值拆成单字数组
 /// - `PinnedWordStore` 直接当作完整词项数组
 enum MinimalTOML {

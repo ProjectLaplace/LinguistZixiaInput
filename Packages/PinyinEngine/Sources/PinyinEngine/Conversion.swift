@@ -209,7 +209,7 @@ public enum Conversion {
         var wordFreqSum: Double
         var wordCount: Int
         var wordCharCount: Int
-        /// 被任何多字词（word.count ≥ 2）覆盖的字数，不受 `wordNoiseFloor` 限制——
+        /// 被任何多字词（word.count ≥ 2）覆盖的字数，不受 `wordNoiseFloor` 限制：
         /// 噪声以下的多字词也计入。用作 pathScore/segs/chunks 全打平时的 tie-break：
         /// 多字词典命中是更强的用户意图信号，哪怕 freq 没过 noise floor。
         var softWordCharCount: Int
@@ -220,7 +220,7 @@ public enum Conversion {
         /// 所有 chunks 的字母数总和。与 chunkCount 结合得到平均音节长度：
         /// `avgSyllableLength = syllableCharCount / chunkCount`。对同一输入而言
         /// syllableCharCount 在 DP 每个 cell 内恒等于剩余输入长度，因此 avgSyllableLength
-        /// 的变化完全来自 chunkCount——等价于把"chunk 数"的偏好从次键提升到主键。
+        /// 的变化完全来自 chunkCount，等价于把「chunk 数」的偏好从次键提升到主键。
         var syllableCharCount: Int
         /// 单字段数（word.count == 1 且不在 `functionalSingleChars` 白名单内）。
         /// pathScore 减 `singleCharPenalty × singleCharCount`：非白名单单字

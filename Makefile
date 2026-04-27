@@ -123,7 +123,7 @@ $(ENGINE_RESOURCES)/zh_dict_%.db: dicts/zh_dict_%.db
 bundle-alt-dicts: $(BUNDLED_ALT_DICTS) ## 同步 alt 词典至 engine Resources/
 
 # ── 跨词库对比 ────────────────────────────────────────────────────────
-# 对 shipped 词库 + dicts/ 下所有 .db 跑 pinyin-eval，输出通过率表 + case 矩阵。
+# 对 shipped 词库 + dicts/ 下所有 .db 运行 pinyin-eval，输出通过率表 + case 矩阵。
 eval-dicts: $(DICT_DB) $(ALT_DICTS) ## 跨词库对比测试
 	python3 tools/eval_dicts.py $(DICT_DB) $(ALT_DICTS)
 

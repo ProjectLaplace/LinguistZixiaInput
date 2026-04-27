@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""扫参对比工具：用不同评分参数跑 pinyin-eval，对比通过率差异。
+"""扫参对比工具：用不同评分参数运行 pinyin-eval，对比通过率差异。
 
 对 5 个 ScoringConfig 参数做 cartesian 网格扫描，调用 `pinyin-eval --json`
 聚合结果，输出 markdown 报告：
@@ -7,7 +7,7 @@
   - 按通过数从高到低排序的 top-N 配置
   - 最佳配置相对 baseline（ScoringConfig.default）的 newly-pass / newly-fail case
 
-评分的唯一事实来源是 Swift 引擎——本工具只负责编排 run、聚合 NDJSON。
+评分的唯一事实来源是 Swift 引擎：本工具只负责编排 run、聚合 NDJSON。
 
 用法：
     python3 tools/eval_sweep.py fixtures/pinyin-strings.cases
@@ -194,7 +194,7 @@ def main():
             f"{baseline_passed}/{total_cases}"
         )
     else:
-        print("- Baseline not in grid — case-level delta uses ranked[0] as reference.")
+        print("- Baseline not in grid; case-level delta uses ranked[0] as reference.")
     print()
     print("| Rank | Pass | Config |")
     print("|---|---|---|")
@@ -207,7 +207,7 @@ def main():
 
     # ── Case-level delta ──────────────────────────────────────────────
     if baseline_statuses is None:
-        print("\n(baseline config not in grid — skipping case-level delta)")
+        print("\n(baseline config not in grid; skipping case-level delta)")
         return
 
     print("\n## Case-level Delta vs Baseline\n")
