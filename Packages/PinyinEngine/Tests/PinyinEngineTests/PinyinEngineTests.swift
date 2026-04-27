@@ -177,6 +177,31 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(cycled.activeCandidateIndex, typed.candidates.count - 1)
     }
 
+    func testSpaceCommitsActiveCandidate() {
+        let typed = type("kaifajishu")
+        XCTAssertGreaterThanOrEqual(typed.candidates.count, 2)
+        let secondCandidate = typed.candidates[1]
+        cycleActive()  // active → index 1
+        let committed = space()
+        XCTAssertEqual(committed.committedText, secondCandidate)
+    }
+
+    func testSpaceCommitsFirstCandidateWhenNotCycled() {
+        let typed = type("kaifajishu")
+        let firstCandidate = typed.candidates[0]
+        let committed = space()
+        XCTAssertEqual(committed.committedText, firstCandidate)
+    }
+
+    func testPunctuationCommitsActiveCandidate() {
+        let typed = type("kaifajishu")
+        XCTAssertGreaterThanOrEqual(typed.candidates.count, 2)
+        let secondCandidate = typed.candidates[1]
+        cycleActive()  // active → index 1
+        let committed = engine.process(.punctuation(","))
+        XCTAssertEqual(committed.committedText, secondCandidate + "，")
+    }
+
     // MARK: - Bracket Compose Mode
 
     func testBracketOnFirstWordCandidateEntersComposeMode() {

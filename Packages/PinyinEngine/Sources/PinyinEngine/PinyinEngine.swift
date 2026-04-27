@@ -470,13 +470,18 @@ public class PinyinEngine {
             return result
         }
 
-        if let first = candidates.first {
+        if !candidates.isEmpty {
+            // 提交活跃候选（用户可能已通过 ←→、⌘⇧[]、⇧+digit 切换 activeCandidateIndex；
+            // 未切换时该索引为 0，行为与提交首选一致）
+            let safeIndex =
+                (0..<candidates.count).contains(activeCandidateIndex) ? activeCandidateIndex : 0
+            let active = candidates[safeIndex]
             if focusIndex != nil {
                 // Tab 聚焦模式：确认聚焦段，可能自动提交
-                return confirmFocusedSegment(with: first)
+                return confirmFocusedSegment(with: active)
             } else {
                 // 正常模式：用候选替换整个拼音串，然后提交全部
-                finalizeAllPinyin(with: first)
+                finalizeAllPinyin(with: active)
                 let result = composingItems.map { $0.content }.joined()
                 resetAll()
                 return result
@@ -608,7 +613,7 @@ public class PinyinEngine {
 
     /// 处理标点输入：
     /// - 缓冲区为空时，直接提交全角标点。
-    /// - 缓冲区有候选时，确认首选候选 + 提交全角标点。
+    /// - 缓冲区有候选时，确认活跃候选 + 提交全角标点。
     /// - 缓冲区有内容但无候选时，提交缓冲区原始内容 + 全角标点。
     private func handlePunctuation(_ char: Character) -> String? {
         let fullWidth = mapToFullWidth(char)
@@ -617,8 +622,12 @@ public class PinyinEngine {
             return fullWidth
         } else {
             var result = ""
-            if let first = candidates.first {
-                finalizeAllPinyin(with: first)
+            if !candidates.isEmpty {
+                // 确认活跃候选（用户可能已通过 ←→、⌘⇧[]、⇧+digit 切换 activeCandidateIndex；
+                // 未切换时该索引为 0，行为与确认首选一致）
+                let safeIndex =
+                    (0..<candidates.count).contains(activeCandidateIndex) ? activeCandidateIndex : 0
+                finalizeAllPinyin(with: candidates[safeIndex])
                 result = composingItems.map { $0.content }.joined()
             } else {
                 result = composingItems.map { $0.content }.joined()
