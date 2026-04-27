@@ -19,6 +19,8 @@ TEST_RESOURCES = Packages/PinyinEngine/Tests/PinyinEngineTests/Resources
 # fixture 词典写到 test target 的 Resources（仅供单元测试加载），不再污染 production。
 # production 暂用 fixture 版的 ja_dict 作为占位，等正式 ja preset 实现后替换。
 bootstrap:
+	@echo "==> Initializing submodules (rime-ice, rime-frost)..."
+	tools/init_submodules.sh
 	@echo "==> Generating fixture dictionaries into test resources..."
 	python3 tools/build_dict_db.py fixtures
 	@echo "==> Generating default zh_dict (rime-ice default preset) into production resources..."
