@@ -15,6 +15,8 @@ class LaplaceInputController: IMKInputController {
     private var currentState = EngineState.idle
     /// 候选翻页偏移量
     private var pageOffset = 0
+    /// 跟踪 IMK 候选窗当前认为的高亮位置。详见 applyActiveCandidateHighlight。
+    private var imkVisualIndex = 0
 
     /// 英文直通模式（Shift toggle）
     private static var englishMode = false
@@ -115,8 +117,11 @@ class LaplaceInputController: IMKInputController {
             return false
         }
 
+        // 方向键事件天生带 .function 和 .numericPad 两个设备 flag（NSEvent 用来标记
+        // 「这是功能键区/数字键盘上的键」的元数据，不是用户按下的修饰键）。这俩位都在
+        // deviceIndependentFlagsMask 里，必须减掉，否则方向键会被下面的修饰键守卫挡住。
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting(.capsLock)
+            .subtracting([.capsLock, .function, .numericPad])
 
         // 诊断 hotkey：⌃⇧⌘/ 在有活跃组合时把当前拼音 + 候选 + Conversion 写入 glitch 日志。
         // marker 文件不存在时 engine 自身 no-op，这里不重复判。
@@ -149,6 +154,32 @@ class LaplaceInputController: IMKInputController {
         }
         if modifiers == [.control, .shift], let digit = digitFromEvent(event) {
             return handlePinHotkey(unpin: false, digit: digit, client: client)
+        }
+
+        // ⇧<1-9>: 把候选第 N 项设为 active（不提交，[ ] 后续在它上面动）。
+        // 索引越界（位数超过当前候选数）落空，让事件继续走标点路径，保留 !@#$ 等的输入。
+        if modifiers == .shift, let digit = digitFromEvent(event) {
+            let globalIndex = pageOffset + digit - 1
+            if globalIndex < currentState.candidates.count,
+                engine.setActiveCandidate(atIndex: globalIndex)
+            {
+                currentState = engine.currentState
+                applyState(to: client)
+                return true
+            }
+        }
+
+        // ⌘⇧[ / ⌘⇧]: 循环切换 active（[ 反向、] 正向）。
+        // 跟 macOS 用 ⇧⌘[ ⇧⌘] 在 tab/page 间切换的习惯一致，且手不离开 bracket 区。
+        // keyCode 33=[, keyCode 30=]
+        if modifiers == [.command, .shift] && (event.keyCode == 33 || event.keyCode == 30)
+            && !currentState.candidates.isEmpty
+        {
+            let backward = event.keyCode == 33
+            currentState = engine.process(.cycleActiveCandidate(backward: backward))
+            pageOffset = 0
+            applyState(to: client)
+            return true
         }
 
         // 带修饰键的事件（除 Shift 外）不处理，交给系统
@@ -287,12 +318,14 @@ class LaplaceInputController: IMKInputController {
         case 36: return .enter
         case 53: return .esc
         case 48:
-            // Ctrl+Tab / Ctrl+Shift+Tab：循环切换激活候选（不提交）
             // Tab / Shift+Tab：进入/移动音节聚焦
-            let backward = event.modifierFlags.contains(.shift)
-            return event.modifierFlags.contains(.control)
-                ? .cycleActiveCandidate(backward: backward)
-                : .tab(backward: backward)
+            return .tab(backward: event.modifierFlags.contains(.shift))
+        case 123:
+            // ←：候选窗里把激活候选向前移；候选为空时不拦截，让系统处理光标移动。
+            return currentState.candidates.isEmpty ? nil : .cycleActiveCandidate(backward: true)
+        case 124:
+            // →：候选窗里把激活候选向后移；候选为空时不拦截，让系统处理光标移动。
+            return currentState.candidates.isEmpty ? nil : .cycleActiveCandidate(backward: false)
         default: break
         }
 
@@ -454,9 +487,12 @@ class LaplaceInputController: IMKInputController {
         if currentState.items.isEmpty {
             // Buffer cleared — hide the window
             window.hide()
+            imkVisualIndex = 0
         } else if !currentState.candidates.isEmpty {
             // New candidates available — update and show
             window.update()
+            // window.update() 会把 IMK 内部 selection 重置回 0（vChewing v3.4.9 reloadData 里印证）
+            imkVisualIndex = 0
             window.show()
             applyActiveCandidateHighlight(window: window)
         }
@@ -465,12 +501,34 @@ class LaplaceInputController: IMKInputController {
 
     /// 在 IMK 候选窗里把 activeCandidateIndex 对应的格子高亮（IMK 内置的 selection 游标）。
     /// 仅对当前页可见的候选有效。
+    ///
+    /// 实现机制：公开 API `selectCandidate(withIdentifier:)` 在
+    /// `kIMKSingleRowSteppingCandidatePanel` 上**不刷新视觉高亮**——它会改
+    /// `selectedCandidate()` 的返回值，但 panel 本身不重画，疑似 framework bug。唯一可行
+    /// 的视觉同步路径是调用 `IMKCandidates` 继承自 `NSResponder` 的 `moveLeft:` /
+    /// `moveRight:`，等于走候选窗自己处理方向键时的同一条代码——既然按 → 时 panel 会
+    /// 刷新视觉，那直接调 `moveRight:` 自然也会。因此本地维护 `imkVisualIndex` 跟踪当前
+    /// 位置，按差量调用 move。`window.update()` 会把 IMK 内部 selection 重置回 0，
+    /// 调用方需配合归零。
+    ///
+    /// 致谢：本实现路径源自 vChewing 维护者 ShikiSuen 的公开调研。`IMKCandidates`
+    /// 大量公开 API 在 macOS 12+ 已不可靠，Apple 内部人员被禁止与外部讨论；ShikiSuen
+    /// 把可用的变通办法和已知失效 API 清单整理出来给社区，免去了别人重蹈覆辙。
+    /// - 实现参考：
+    ///   https://github.com/vChewing/vChewing-macOS/blob/3.4.9/Source/Modules/UIModules/CandidateUI/IMKCandidatesImpl.swift
+    /// - IMK API 缺陷与改进诉求清单：
+    ///   https://gist.github.com/ShikiSuen/73b7a55526c9fadd2da2a16d94ec5b49
     private func applyActiveCandidateHighlight(window: IMKCandidates) {
         let pageIndex = currentState.activeCandidateIndex - pageOffset
         let pageSize = pageFit(from: pageOffset)
         guard pageIndex >= 0 && pageIndex < pageSize else { return }
-        let identifier = window.candidateIdentifier(atLineNumber: pageIndex)
-        window.selectCandidate(withIdentifier: identifier)
+        let delta = pageIndex - imkVisualIndex
+        if delta > 0 {
+            for _ in 0..<delta { window.moveRight(self) }
+        } else if delta < 0 {
+            for _ in 0..<(-delta) { window.moveLeft(self) }
+        }
+        imkVisualIndex = pageIndex
     }
 
     // MARK: - 浮动指示器

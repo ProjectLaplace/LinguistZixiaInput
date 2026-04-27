@@ -1112,6 +1112,15 @@ public class PinyinEngine {
         return true
     }
 
+    /// 把第 N 个候选设为 active（不提交）。配合 `[` `]` 在任意候选上取首/末字。
+    /// 索引越界返回 false，调用方可据此走兜底路径（例如让 ⇧<num> 落到标点）。
+    @discardableResult
+    public func setActiveCandidate(atIndex index: Int) -> Bool {
+        guard index >= 0 && index < candidates.count else { return false }
+        activeCandidateIndex = index
+        return true
+    }
+
     /// 把第 N 个候选从用户层移除（不影响 sys 层）。
     /// 守卫与索引规则同 `pinCandidate`；候选不在用户层时 store 内部静默跳过。
     @discardableResult
