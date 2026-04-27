@@ -117,9 +117,10 @@ class LaplaceInputController: IMKInputController {
             return false
         }
 
-        // 方向键事件天生带 .function 和 .numericPad 两个设备 flag（NSEvent 用来标记
-        // 「这是功能键区/数字键盘上的键」的元数据，不是用户按下的修饰键）。这俩位都在
-        // deviceIndependentFlagsMask 里，必须减掉，否则方向键会被下面的修饰键守卫挡住。
+        // 方向键事件本身带有 .function 和 .numericPad 两个设备标志位（NSEvent
+        // 用以标记键的物理位置——功能键区或数字键盘——的元数据，并非用户按下的
+        // 修饰键）。这两位都属于 deviceIndependentFlagsMask 范围，必须在此处
+        // 减去，否则方向键会被下方的修饰键守卫拦截。
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.capsLock, .function, .numericPad])
 
@@ -182,7 +183,18 @@ class LaplaceInputController: IMKInputController {
             return true
         }
 
-        // 带修饰键的事件（除 Shift 外）不处理，交给系统
+        // 修饰键守卫：除 Shift 外，凡按下修饰键的事件一律交回系统，避免输入法
+        // 吞掉 ⌘V/⌘C 等系统快捷键。本输入法自身需要的带修饰键热键有三条绕过
+        // 路径，新增时应**优先采用以下任一策略，不应扩展本守卫的 allowlist**：
+        //   1. **源头清洗**：方向键的 .function/.numericPad 设备标志位已在函数
+        //      顶部的 modifiers 计算中减去，最终 modifiers 为空集，自然通过守卫。
+        //      任何「形似修饰键、实为设备标志位」的位均应在该处减去。
+        //   2. **提前拦截**：真正带修饰键的热键（⌃⇧⌘/、⌃⇧⌘D、pin/unpin、
+        //      ⇧+digit、⌘⇧[ / ⌘⇧]）在守卫之前由专门的 handler 匹配并 return
+        //      true，事件不会到达守卫。
+        //   3. **形状已合规**：纯 Shift 修饰（⇧+digit、⇧+. 翻页 `<>`）由于守卫
+        //      第二个条件 `!= .shift` 已将其排除，自然通过；handler 仍需排在
+        //      mapEvent 之前提前拦截，否则字符将被作为 punctuation 提交。
         if !modifiers.isEmpty && modifiers != .shift {
             return false
         }
@@ -331,8 +343,10 @@ class LaplaceInputController: IMKInputController {
 
         guard let chars = event.characters, let first = chars.first else { return nil }
 
-        if first == "_" {
-            return currentState.items.isEmpty ? .punctuation(first) : .letter(first)
+        if first == "0" {
+            // 自定义短语触发器：缓冲区非空时把 0 当 letter 续 buffer（xl0 → 希腊字母候选），
+            // 缓冲区为空时返回 nil 让系统正常输入字符 0。详见 DESIGN.md §8.3。
+            return currentState.items.isEmpty ? nil : .letter(first)
         } else if first.isLetter {
             return .letter(first)
         } else if first.isNumber, let num = Int(String(first)), num >= 1, num <= 9 {
@@ -504,16 +518,17 @@ class LaplaceInputController: IMKInputController {
     ///
     /// 实现机制：公开 API `selectCandidate(withIdentifier:)` 在
     /// `kIMKSingleRowSteppingCandidatePanel` 上**不刷新视觉高亮**——它会改
-    /// `selectedCandidate()` 的返回值，但 panel 本身不重画，疑似 framework bug。唯一可行
-    /// 的视觉同步路径是调用 `IMKCandidates` 继承自 `NSResponder` 的 `moveLeft:` /
-    /// `moveRight:`，等于走候选窗自己处理方向键时的同一条代码——既然按 → 时 panel 会
-    /// 刷新视觉，那直接调 `moveRight:` 自然也会。因此本地维护 `imkVisualIndex` 跟踪当前
-    /// 位置，按差量调用 move。`window.update()` 会把 IMK 内部 selection 重置回 0，
-    /// 调用方需配合归零。
+    /// `selectedCandidate()` 的返回值，但 panel 本身不重绘，疑似 framework bug。
+    /// 唯一可行的视觉同步路径，是调用 `IMKCandidates` 继承自 `NSResponder` 的
+    /// `moveLeft:` / `moveRight:`，即候选窗自身处理方向键时所走的同一条代码——
+    /// 既然按 → 时 panel 会刷新视觉，直接调用 `moveRight:` 亦然。因此本地维护
+    /// `imkVisualIndex` 跟踪当前位置，按差量调用 move。`window.update()` 会将
+    /// IMK 内部 selection 重置为 0，调用方需相应归零。
     ///
     /// 致谢：本实现路径源自 vChewing 维护者 ShikiSuen 的公开调研。`IMKCandidates`
-    /// 大量公开 API 在 macOS 12+ 已不可靠，Apple 内部人员被禁止与外部讨论；ShikiSuen
-    /// 把可用的变通办法和已知失效 API 清单整理出来给社区，免去了别人重蹈覆辙。
+    /// 的大量公开 API 在 macOS 12+ 已不可靠，且 Apple 内部人员被禁止与外部讨论；
+    /// ShikiSuen 将可行的变通方案与已知失效 API 清单整理并公开给社区，使后人得以
+    /// 避免重蹈覆辙。
     /// - 实现参考：
     ///   https://github.com/vChewing/vChewing-macOS/blob/3.4.9/Source/Modules/UIModules/CandidateUI/IMKCandidatesImpl.swift
     /// - IMK API 缺陷与改进诉求清单：
