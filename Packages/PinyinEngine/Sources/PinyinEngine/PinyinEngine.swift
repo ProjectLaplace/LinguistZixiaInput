@@ -108,7 +108,10 @@ public class PinyinEngine {
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
     private var candidates: [String] = [] {
-        didSet { activeCandidateIndex = 0 }
+        didSet {
+            activeCandidateIndex = 0
+            partialConsumedPinyin = [:]
+        }
     }
     private var currentMode: InputMode = .pinyin
     /// 当前激活候选索引；任何对 candidates 的赋值会经 didSet 归零
@@ -118,8 +121,11 @@ public class PinyinEngine {
     private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
 
     private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
-    private var firstSegmentCandidateStart: Int = 0  // 首段补充候选在 candidates 中的起始位置
-    private var firstSegmentPinyin: String = ""  // 首段拼音（用于部分确认后截断 rawPinyin）
+
+    /// 候选文本到该候选实际消耗的拼音段的映射。仅在候选未覆盖整个 cleanPinyin 时登记；
+    /// 未登记的候选默认覆盖整串拼音，被选中时进入 `finalizeAllPinyin`；
+    /// 已登记的候选被选中时进入 `confirmFirstSegment`，按记录的拼音段截除 rawPinyin 后继续组词。
+    private var partialConsumedPinyin: [String: String] = [:]
 
     // 全角标点状态
     private var doubleQuoteOpen = false  // " 的开闭状态
@@ -534,13 +540,17 @@ public class PinyinEngine {
         if focusIndex != nil {
             // Tab 聚焦模式：确认聚焦段，可能自动提交
             return confirmFocusedSegment(with: candidates[actualIndex])
-        } else if firstSegmentCandidateStart > 0 && actualIndex >= firstSegmentCandidateStart {
-            // 首段补充候选：只确认首段，剩余拼音继续组词
-            confirmFirstSegment(with: candidates[actualIndex])
+        }
+
+        // 整串方案与部分方案的判定依据为候选实际消耗的拼音段，与候选位置无关。
+        // 部分方案的候选登记在 partialConsumedPinyin 中（包括 4b 注入的首词、首段补充候选等）；
+        // 未登记者视为整串方案，覆盖全部 cleanPinyin。
+        let candidateText = candidates[actualIndex]
+        if let consumed = partialConsumedPinyin[candidateText] {
+            confirmFirstSegment(with: candidateText, consumedPinyin: consumed)
             return nil
         } else {
-            // 正常模式：用候选替换整个拼音串并提交
-            finalizeAllPinyin(with: candidates[actualIndex])
+            finalizeAllPinyin(with: candidateText)
             let result = composingItems.map { $0.content }.joined()
             resetAll()
             return result
@@ -570,8 +580,6 @@ public class PinyinEngine {
             composingItems.append(.text(char))
             rawPinyin = remainingPinyin
             focusIndex = nil
-            firstSegmentCandidateStart = 0
-            firstSegmentPinyin = ""
             rebuildFromRawPinyin()
             return nil
         }
@@ -801,22 +809,25 @@ public class PinyinEngine {
             }
         }
 
+        // 部分方案登记表：候选文本到该候选消耗的拼音段。未登记的候选视为整串方案。
+        // 被选中时分别进入 `confirmFirstSegment`（部分方案）或 `finalizeAllPinyin`（整串方案）。
+        var partial: [String: String] = [:]
+
         // 4b. 首词候选注入：长串输入（≥4 音节）时，独立查最长前缀词作为第二候选，
         //     与 Conversion 的最优切分解耦（完整词典下 Conversion 可能挑单字段）。
-        //     配合后续 Ctrl+Tab 激活该候选 + [ ] 选字，可实现「跨词组合」compose 流程。
+        //     该候选仅覆盖首部若干音节，登记为部分方案；选中后保留剩余拼音继续组词。
         if defaultSyllables.count >= 4,
             remainder.isEmpty || remainderIsBareInitial,
             !result.isEmpty,
             let firstWord = findLongestPrefixWord(syllables: defaultSyllables, store: store),
-            firstWord != result.first
+            firstWord.text != result.first
         {
-            result.insert(firstWord, at: 1)
+            result.insert(firstWord.text, at: 1)
+            partial[firstWord.text] = firstWord.pinyin
         }
 
         // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
         //    追加该拼音的其他候选，方便用户快速替换首词继续组词
-        firstSegmentCandidateStart = 0
-        firstSegmentPinyin = ""
         if (remainder.isEmpty || remainderIsBareInitial) && defaultSyllables.count > 1 {
             // 确定首段拼音：优先用 Conversion 结果的第一个词对应的音节
             let firstPinyin: String
@@ -845,11 +856,10 @@ public class PinyinEngine {
             let existingSet = Set(result)
             let filtered = firstSegCandidates.filter { !existingSet.contains($0) }
 
-            if !filtered.isEmpty {
-                firstSegmentCandidateStart = result.count
-                firstSegmentPinyin = firstPinyin
-                result.append(contentsOf: filtered)
+            for text in filtered {
+                partial[text] = firstPinyin
             }
+            result.append(contentsOf: filtered)
 
             // 首个完整音节的单字候选（如 gangcd → gang 的「刚」「港」「钢」等）
             let firstFullSyllable = Self.normalizePinyin(defaultSyllables[0])
@@ -861,6 +871,9 @@ public class PinyinEngine {
                 }
                 let existingAfter = Set(result)
                 let singleFiltered = singleCharCandidates.filter { !existingAfter.contains($0) }
+                for text in singleFiltered {
+                    partial[text] = firstFullSyllable
+                }
                 result.append(contentsOf: singleFiltered)
             }
         }
@@ -914,13 +927,18 @@ public class PinyinEngine {
             result = applyPinnedChars(for: cleanPinyin, to: result)
         }
 
-        // 自定义短语置顶（去重）
+        // 自定义短语置顶（去重）。短语本身覆盖整个 phraseKey，视作整串方案；
+        // 与第 5、6 步同文本的部分方案登记发生冲突时，移除原登记。
         if !customResults.isEmpty {
             let customSet = Set(customResults)
+            for text in customSet {
+                partial.removeValue(forKey: text)
+            }
             result = customResults + result.filter { !customSet.contains($0) }
         }
 
         candidates = result
+        partialConsumedPinyin = partial
 
         let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
         Profiler.record(
@@ -1010,20 +1028,17 @@ public class PinyinEngine {
         }
     }
 
-    /// 确认首段候选：只替换首段拼音为选中文字，剩余拼音继续组词
-    private func confirmFirstSegment(with text: String) {
-        guard !firstSegmentPinyin.isEmpty else { return }
+    /// 确认部分方案候选：将候选写入已确认文本，截除 rawPinyin 中对应的拼音段，剩余继续组词。
+    /// 参数 `consumedPinyin` 取自 `partialConsumedPinyin` 中的登记值，与候选实际覆盖范围一一对应。
+    private func confirmFirstSegment(with text: String, consumedPinyin: String) {
+        guard !consumedPinyin.isEmpty else { return }
 
-        // 将首段确认为 .text，截掉 rawPinyin 中对应的首段拼音
         let cleanRaw = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
         let normalizedRaw = Self.normalizePinyin(cleanRaw)
-        let normalizedFirst = firstSegmentPinyin  // 已经 normalized
 
-        guard normalizedRaw.hasPrefix(normalizedFirst) else { return }
+        guard normalizedRaw.hasPrefix(consumedPinyin) else { return }
 
-        // 更新 rawPinyin：移除首段拼音（在原始 rawPinyin 中定位）
-        // 需要从原始 rawPinyin 中去掉对应长度的字符
-        let remainingNormalized = String(normalizedRaw.dropFirst(normalizedFirst.count))
+        let remainingNormalized = String(normalizedRaw.dropFirst(consumedPinyin.count))
 
         // 重建：confirmed text + 剩余拼音继续组词
         let confirmedPrefix = composingItems.filter { !$0.isEditable }
@@ -1031,8 +1046,6 @@ public class PinyinEngine {
         composingItems.append(.text(text))
         rawPinyin = remainingNormalized
         focusIndex = nil
-        firstSegmentCandidateStart = 0
-        firstSegmentPinyin = ""
 
         if rawPinyin.isEmpty {
             candidates = []
@@ -1063,8 +1076,6 @@ public class PinyinEngine {
         candidates = []
         rawPinyin = ""
         focusIndex = nil
-        firstSegmentCandidateStart = 0
-        firstSegmentPinyin = ""
         if currentMode == .transient { currentMode = .pinyin }
     }
 
@@ -1074,17 +1085,18 @@ public class PinyinEngine {
         return pickLast ? String(candidate.last!) : String(candidate.first!)
     }
 
-    /// 在词典里找首词候选：从最长前缀（音节数为 syllables.count - 1）开始往下，
-    /// 取第一个 ≥2 字的命中。仅用于长串输入的首词注入。
+    /// 在词典中查找首词候选：自最长前缀（音节数为 syllables.count - 1）起逐级缩短，
+    /// 返回首个字数 ≥2 的命中。仅用于长串输入的首词注入。
+    /// 返回值附带对应的拼音段（已规范化），供调用方登记为部分方案候选的消耗范围。
     private func findLongestPrefixWord(syllables: [String], store: DictionaryStore?)
-        -> String?
+        -> (text: String, pinyin: String)?
     {
         guard syllables.count >= 2 else { return nil }
         for prefixLen in stride(from: syllables.count - 1, through: 2, by: -1) {
             let prefix = Self.normalizePinyin(syllables[0..<prefixLen].joined())
             guard let cands = store?.candidates(for: prefix) else { continue }
             if let multi = cands.first(where: { $0.count >= 2 }) {
-                return multi
+                return (multi, prefix)
             }
         }
         return nil
