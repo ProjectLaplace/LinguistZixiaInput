@@ -570,6 +570,7 @@ class LaplaceInputController: IMKInputController {
 
 class LaplaceIndicator {
     private let panel: NSPanel
+    private let iconView: NSImageView
     private let label: NSTextField
 
     init() {
@@ -586,18 +587,25 @@ class LaplaceIndicator {
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.wantsLayer = true
+        container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
+        container.layer!.cornerRadius = 4
+
+        iconView = NSImageView(frame: NSRect(x: 3, y: 1, width: 22, height: 22))
+        if let url = Bundle.main.url(forResource: "LaplaceIndicatorIcon", withExtension: "tiff") {
+            iconView.image = NSImage(contentsOf: url)
+        }
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        container.addSubview(iconView)
+
         label = NSTextField(labelWithString: "LP")
         label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         label.textColor = NSColor(white: 0.45, alpha: 1.0)
         label.alignment = .center
         label.isBezeled = false
         label.drawsBackground = false
-
-        // 用一个 layer-backed 容器来控制背景色和圆角，避免 NSTextField layer 时机问题
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
-        container.wantsLayer = true
-        container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
-        container.layer!.cornerRadius = 4
+        label.isHidden = true
 
         let labelHeight: CGFloat = 16
         label.frame = NSRect(
@@ -607,6 +615,8 @@ class LaplaceIndicator {
         container.addSubview(label)
 
         panel.contentView = container
+        label.isHidden = iconView.image != nil
+        iconView.isHidden = iconView.image == nil
     }
 
     func show(near cursorRect: NSRect) {
@@ -624,6 +634,8 @@ class LaplaceIndicator {
     /// 短暂显示中英文切换状态
     func showMode(english: Bool, near cursorRect: NSRect) {
         let container = panel.contentView!
+        iconView.isHidden = true
+        label.isHidden = false
         label.stringValue = english ? "EN" : "中"
         label.textColor = .white
         container.layer!.backgroundColor = NSColor(white: 0.35, alpha: 1.0).cgColor
@@ -638,6 +650,8 @@ class LaplaceIndicator {
             self?.panel.orderOut(nil)
             self?.label.stringValue = "LP"
             self?.label.textColor = NSColor(white: 0.45, alpha: 1.0)
+            self?.label.isHidden = self?.iconView.image != nil
+            self?.iconView.isHidden = self?.iconView.image == nil
             container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
         }
     }
@@ -646,6 +660,8 @@ class LaplaceIndicator {
     /// 不 hide 面板：用户通常仍在组合中，下一个按键的 show() 会保持面板在位。
     func showLogged(near cursorRect: NSRect) {
         let container = panel.contentView!
+        iconView.isHidden = true
+        label.isHidden = false
         label.stringValue = "●"
         label.textColor = .white
         container.layer!.backgroundColor = NSColor.systemGreen.cgColor
@@ -658,6 +674,8 @@ class LaplaceIndicator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.label.stringValue = "LP"
             self?.label.textColor = NSColor(white: 0.45, alpha: 1.0)
+            self?.label.isHidden = self?.iconView.image != nil
+            self?.iconView.isHidden = self?.iconView.image == nil
             container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
         }
     }
@@ -668,6 +686,8 @@ class LaplaceIndicator {
         let wideSize = NSSize(width: 60, height: 24)
         panel.setContentSize(wideSize)
         container.frame = NSRect(origin: .zero, size: wideSize)
+        iconView.isHidden = true
+        label.isHidden = false
         label.frame = NSRect(
             x: 0, y: (wideSize.height - 16) / 2, width: wideSize.width, height: 16)
         label.stringValue = name
@@ -685,11 +705,14 @@ class LaplaceIndicator {
             let defaultSize = NSSize(width: 28, height: 24)
             self.panel.setContentSize(defaultSize)
             container.frame = NSRect(origin: .zero, size: defaultSize)
+            self.iconView.frame = NSRect(x: 3, y: 1, width: 22, height: 22)
             self.label.frame = NSRect(
                 x: 0, y: (defaultSize.height - 16) / 2,
                 width: defaultSize.width, height: 16)
             self.label.stringValue = "LP"
             self.label.textColor = NSColor(white: 0.45, alpha: 1.0)
+            self.label.isHidden = self.iconView.image != nil
+            self.iconView.isHidden = self.iconView.image == nil
             container.layer!.backgroundColor = NSColor(white: 0.92, alpha: 1.0).cgColor
         }
     }
