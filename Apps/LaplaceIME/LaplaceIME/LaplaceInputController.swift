@@ -146,6 +146,17 @@ class LaplaceInputController: IMKInputController {
             return true
         }
 
+        // Pin active hotkey：有候选时，⇧⌘D 或 ⇧⌃D 把当前 active 候选 pin 到用户层队首。
+        // 按 macOS 应用与 IME 的协作惯例，带 Shift 的修饰组合会转发给 IME 处理，
+        // 不带 Shift 的 ⌘D / ⌃D 多数由宿主应用自身消费。两个组合并行绑定，使该
+        // 热键在更多宿主下可用。无候选时不消费事件，让宿主应用按原有语义处理。
+        if modifiers == [.shift, .command] || modifiers == [.shift, .control],
+            event.charactersIgnoringModifiers?.lowercased() == "d",
+            !currentState.candidates.isEmpty
+        {
+            return handlePinActiveHotkey(client: client)
+        }
+
         // Pin / unpin hotkey：⌃⇧<1-9> 或 ⌃⌥<1-9> 把候选第 N 项 pin 到用户层队首
         // （⌃⌥ 作为备选组合，规避 Telegram、WezTerm 等绑定 ⌃⇧<digit> 的应用）；
         // ⌃⇧⌥<1-9> 把候选第 N 项从用户层移除。⌃⇧⌘<num> 与系统截图冲突所以避开。
@@ -296,6 +307,18 @@ class LaplaceInputController: IMKInputController {
         case 25: return 9
         default: return nil
         }
+    }
+
+    /// 把当前 active 候选 pin 到用户层队首。索引取自 engine state 的 activeCandidateIndex
+    /// （已是全局索引，无需叠加 pageOffset）。
+    /// - Returns: 引擎成功 pin（吞事件）；否则 false 让系统继续派发。
+    private func handlePinActiveHotkey(client: any IMKTextInput) -> Bool {
+        let ok = engine.pinCandidate(atIndex: currentState.activeCandidateIndex)
+        guard ok else { return false }
+        currentState = engine.currentState
+        pageOffset = 0
+        applyState(to: client)
+        return true
     }
 
     /// 把 ⌃⇧<digit> / ⌃⇧⌘<digit> 映射到引擎的 pin / unpin API，并刷新候选 UI。
