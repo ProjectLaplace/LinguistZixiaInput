@@ -15,7 +15,7 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: help bootstrap build install reload clean test dict dict-release dicts-all bundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
+.PHONY: help bootstrap build install reload clean test dict dict-release dicts-all bundle-alt-dicts unbundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
 
 TEST_RESOURCES = Packages/PinyinEngine/Tests/PinyinEngineTests/Resources
 
@@ -45,7 +45,7 @@ bootstrap: ## 准备开发环境：初始化 submodule，生成所有打包词�
 
 # 默认采用 Release 配置：日常打字延迟更低、内存更小，且贴近终端用户体验。
 # 调试崩溃或需触发 assert / assertionFailure 时切回 Debug：make install CONFIG=Debug
-build: bundle-alt-dicts ## 构建 IME（默认 Release；CONFIG=Debug 切换至 Debug）
+build: $(if $(MULTI_DICT),bundle-alt-dicts,unbundle-alt-dicts) ## 构建 IME（默认 Release；CONFIG=Debug 切换至 Debug；MULTI_DICT=1 同时打包额外词库供 ⌃⇧⌘D 切换）
 	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration $(CONFIG) \
 		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) $(XCFLAGS) build
 
@@ -79,7 +79,7 @@ dict-release: ## 重新生成 production zh_dict
 	rm -f "$(DICT_DB)"
 	python3 tools/build_dict_db.py preset default
 
-release: $(DICT_DB) ## 构建 Release 并注入 MARKETING_VERSION
+release: $(DICT_DB) unbundle-alt-dicts ## 构建 Release 并注入 MARKETING_VERSION
 	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
 		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) $(XCFLAGS) \
 		MARKETING_VERSION=$(VERSION_NUMBER) \
@@ -126,6 +126,9 @@ $(ENGINE_RESOURCES)/zh_dict_%.db: dicts/zh_dict_%.db
 	cp $< $@
 
 bundle-alt-dicts: $(BUNDLED_ALT_DICTS) ## 同步 alt 词典至 engine Resources/
+
+unbundle-alt-dicts: ## 清除 engine Resources/ 内的额外词库（默认构建走此分支）
+	rm -f $(BUNDLED_ALT_DICTS)
 
 # ── 跨词库对比 ────────────────────────────────────────────────────────
 # 对 shipped 词库 + dicts/ 下所有 .db 运行 pinyin-eval，输出通过率表 + case 矩阵。

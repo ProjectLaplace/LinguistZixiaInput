@@ -189,17 +189,20 @@ public class PinyinEngine {
     /// 当前加载的中文词库变体（对应 `zhDictVariants` 里的文件名前缀）。
     public private(set) var currentZhDictVariant: String = "zh_dict"
 
-    /// 可切换的中文词库变体（按循环顺序）。所有变体都应作为 Resources 打包进 bundle。
+    /// 可切换的中文词库变体（按循环顺序）。`zh_dict` 始终存在；其余备用词库仅在
+    /// 已随 bundle 打包时才会出现在列表中，使默认构建（仅 ship `zh_dict`）启动时
+    /// 不会因找不到文件而崩溃。
     /// - `zh_dict`：shipped 默认（rime-ice default 预设）
     /// - `zh_dict_ice_full`：rime-ice full 预设，词汇更全
     /// - `zh_dict_frost_default`：rime-frost default 预设，另一维护线
     /// - `zh_dict_frost_full`：rime-frost full 预设
-    public static let zhDictVariants: [String] = [
-        "zh_dict",
-        "zh_dict_ice_full",
-        "zh_dict_frost_default",
-        "zh_dict_frost_full",
-    ]
+    public static var zhDictVariants: [String] {
+        let optional: [String] = [
+            "zh_dict_ice_full", "zh_dict_frost_default", "zh_dict_frost_full",
+        ]
+        .filter { Bundle.module.url(forResource: $0, withExtension: "db") != nil }
+        return ["zh_dict"] + optional
+    }
 
     /// `UserDefaults` 中保存当前词库变体的键名。轻量软状态，不写入配置文件。
     private static let zhDictVariantDefaultsKey = "zhDictVariant"

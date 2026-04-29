@@ -254,8 +254,11 @@ class LaplaceInputController: IMKInputController {
     // MARK: - 词典切换
 
     /// 循环切换 engine 的中文词库变体，在浮动指示器上显示新词库名称。
+    /// 仅在 bundle 中确实打包了备用词库时才有候选可循环；默认构建只 ship `zh_dict`，
+    /// 此时 `zhDictVariants` 仅含一项，直接 no-op。
     private func cycleZhDict() {
         let variants = PinyinEngine.zhDictVariants
+        guard variants.count > 1 else { return }
         let current = engine.currentZhDictVariant
         let idx = variants.firstIndex(of: current) ?? 0
         let next = variants[(idx + 1) % variants.count]
