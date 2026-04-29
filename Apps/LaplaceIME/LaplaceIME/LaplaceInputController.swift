@@ -160,8 +160,8 @@ class LaplaceInputController: IMKInputController {
         // Pin / unpin hotkey：⌃⇧<1-9> 或 ⌃⌥<1-9> 把候选第 N 项 pin 到用户层队首
         // （⌃⌥ 作为备选组合，规避 Telegram、WezTerm 等绑定 ⌃⇧<digit> 的应用）；
         // ⌃⇧⌥<1-9> 把候选第 N 项从用户层移除。⌃⇧⌘<num> 与系统截图冲突所以避开。
-        // 引擎内部 pinnableContext 已守卫模式 / 缓冲区 / 索引；这里成功才吞事件，
-        // 守卫不通过时返回 false 让系统继续派发原事件。
+        // 引擎内部 pinnableContext 已守卫模式 / 缓冲区 / 索引；事件吞掉语义详见
+        // `handlePinHotkey`：buffer 活跃时一律吞掉，避免数字键泄漏到宿主应用。
         if modifiers == [.control, .shift, .option], let digit = digitFromEvent(event) {
             return handlePinHotkey(unpin: true, digit: digit, client: client)
         }
@@ -311,33 +311,38 @@ class LaplaceInputController: IMKInputController {
 
     /// 把当前 active 候选 pin 到用户层队首。索引取自 engine state 的 activeCandidateIndex
     /// （已是全局索引，无需叠加 pageOffset）。
-    /// - Returns: 引擎成功 pin（吞事件）；否则 false 让系统继续派发。
+    /// - Returns: 引擎成功 pin 时吞事件；引擎守卫不通过时仍吞事件，因为本函数的
+    ///   调用点已守卫 `!currentState.candidates.isEmpty`，预编辑文本必然活跃，
+    ///   放任 ⇧⌘D / ⇧⌃D 落到宿主应用会造成意外输入。
     private func handlePinActiveHotkey(client: any IMKTextInput) -> Bool {
         let ok = engine.pinCandidate(atIndex: currentState.activeCandidateIndex)
-        guard ok else { return false }
+        guard ok else { return true }
         currentState = engine.currentState
         pageOffset = 0
         applyState(to: client)
         return true
     }
 
-    /// 把 ⌃⇧<digit> / ⌃⇧⌘<digit> 映射到引擎的 pin / unpin API，并刷新候选 UI。
+    /// 把 ⌃⇧<digit> / ⌃⌥<digit> / ⌃⇧⌥<digit> 映射到引擎的 pin / unpin API，并刷新候选 UI。
     /// digit 是用户视角的「第 N 个候选」（1-based），需要叠加 pageOffset 还原成
     /// 引擎 candidates 数组的全局索引。
-    /// - Returns: 引擎成功处理（吞事件）；否则返回 false 让系统继续派发。
+    /// - Returns: 引擎成功处理时吞事件；引擎守卫不通过时按预编辑文本是否活跃区分 ——
+    ///   buffer 活跃则吞掉避免数字泄漏到宿主应用（例：混输态下选中字面块候选时
+    ///   pin 不适用，若返回 false 会让 ⌃⇧2 把字符写入宿主）；buffer 空闲则
+    ///   返回 false，保留 ⌃⇧<digit> 作为宿主应用快捷键的语义。
     private func handlePinHotkey(unpin: Bool, digit: Int, client: any IMKTextInput) -> Bool {
         let globalIndex = pageOffset + digit - 1
         let ok =
             unpin
             ? engine.unpinCandidate(atIndex: globalIndex)
             : engine.pinCandidate(atIndex: globalIndex)
-        guard ok else { return false }
-
-        // 引擎已重算 candidates；同步本地快照并刷新 IMK 候选窗。
-        currentState = engine.currentState
-        pageOffset = 0
-        applyState(to: client)
-        return true
+        if ok {
+            currentState = engine.currentState
+            pageOffset = 0
+            applyState(to: client)
+            return true
+        }
+        return !currentState.items.isEmpty
     }
 
     /// 把 Resources 里的文件名前缀映射成指示器上显示的短标签。

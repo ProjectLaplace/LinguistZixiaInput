@@ -1137,6 +1137,218 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(final.committedText, "现在 API")
     }
 
+    // MARK: - Mixed Buffer Bracket (混输态以词定字)
+    //
+    // 混输态 [ / ] 操作首个拼音段：`[` 取该段首选的首字，`]` 取末字。前置字面块
+    // 一并被确认进预编辑文本前缀。整段消耗后若 `rawSpans` 不再含拼音段（空或
+    // 仅剩字面块），即把预编辑文本与剩余字面块一并直接提交（中↔拉边界由
+    // `joinedCommitText` 统一插入空格）；若仍含拼音段，则保留 buffer 继续组词。
+
+    func testMixedBracketLeftOnTrailingLiteralCommitsImmediately() {
+        // xianzaiAPI 按 [：首拼音段 xianzai 首选「现在」，取首字「现」；
+        // 余 rawSpans = [.literal("API")] 不含拼音段 → 直接提交「现 API」。
+        type("xianzaiAPI")
+        let state = bracketLeft()
+        XCTAssertEqual(state.committedText, "现 API")
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
+    }
+
+    func testMixedBracketRightOnTrailingLiteralCommitsImmediately() {
+        // xianzaiAPI 按 ]：首拼音段 xianzai 首选「现在」，取末字「在」；
+        // 余 rawSpans = [.literal("API")] → 直接提交「在 API」。
+        type("xianzaiAPI")
+        let state = bracketRight()
+        XCTAssertEqual(state.committedText, "在 API")
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
+    }
+
+    func testMixedBracketLeftOnLeadingLiteralCommitsImmediately() {
+        // APIxianzai 按 [：先确认前置字面块 API → 取首拼音段 xianzai 首选首字「现」；
+        // 余 rawSpans 空 → 直接提交「API 现」。
+        type("APIxianzai")
+        let state = bracketLeft()
+        XCTAssertEqual(state.committedText, "API 现")
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
+    }
+
+    func testMixedBracketRightOnLeadingLiteralCommitsImmediately() {
+        // APIxianzai 按 ]：先确认 API → 取首拼音段 xianzai 首选末字「在」；
+        // 余 rawSpans 空 → 直接提交「API 在」。
+        type("APIxianzai")
+        let state = bracketRight()
+        XCTAssertEqual(state.committedText, "API 在")
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
+    }
+
+    func testMixedBracketLeftWithMultiplePinyinSegmentsKeepsBuffer() {
+        // xianzaiAPIpengyou 按 [：首拼音段 xianzai 取首字「现」；
+        // 余 rawSpans = [.literal("API"), .pinyin("pengyou")] 仍含拼音 → 保留 buffer。
+        type("xianzaiAPIpengyou")
+        let state = bracketLeft()
+        XCTAssertNil(state.committedText)
+        let texts = state.items.compactMap { item -> String? in
+            if case .text(let s) = item { return s }
+            return nil
+        }
+        XCTAssertEqual(texts, ["现"], "已确认前缀仅含「现」")
+        XCTAssertTrue(
+            state.items.contains(where: { $0.isLiteral && $0.content == "API" }),
+            "中间字面块 API 保留")
+        XCTAssertTrue(
+            state.items.contains(where: {
+                if case .pinyin = $0 { return true }
+                return false
+            }),
+            "后续拼音段 pengyou 保留为可编辑 .pinyin 项")
+    }
+
+    func testMixedBracketLeftPressedTwiceCommitsAccumulated() {
+        // xianzaiAPIpengyou 连按两次 [：第一次取「现」，buffer 仍含 pengyou；
+        // 第二次先确认前置字面块 API、再取 pengyou 首字「朋」，余 rawSpans 空
+        // → 直接提交「现 API 朋」。
+        type("xianzaiAPIpengyou")
+        let first = bracketLeft()
+        XCTAssertNil(first.committedText)
+        let second = bracketLeft()
+        XCTAssertEqual(second.committedText, "现 API 朋")
+        XCTAssertTrue(second.items.isEmpty)
+        XCTAssertTrue(second.candidates.isEmpty)
+    }
+
+    // MARK: - Mixed Buffer Tab (混输态 Tab 段聚焦)
+    //
+    // 混输态 Tab 跳过 .literal（字面块不可 re-segment），只在 .pinyin chunk 之间循环。
+    // editable 项天然过滤字面块，焦点循环规则与纯拼音模式一致。
+
+    func testMixedTabFocusesFirstPinyinSegmentSkippingLiteral() {
+        // xianzaiAPIpengyou：composingItems 中 .pinyin chunks 按 Conversion 切分排布
+        // （fixture 词典将 xianzai 拆为 [xian, zai] 两个 chunk）。
+        // 首次 Tab 进入聚焦模式 → 焦点首个 .pinyin chunk（xian）。
+        type("xianzaiAPIpengyou")
+        let state = tab()
+        XCTAssertNotNil(state.focusedSegmentIndex)
+        // 焦点落在首 chunk「xian」，候选 = fixture 中 xian 的单音节查询结果
+        XCTAssertEqual(state.candidates.first, "西安")
+    }
+
+    func testMixedTabAdvancesPinyinChunksSkippingLiteral() {
+        // xianzaiAPIpengyou：composingItems = [.pinyin(xian), .pinyin(zai),
+        //   .literal(API), .pinyin(peng), .pinyin(you)]。Tab 在 editable .pinyin chunk
+        // 之间循环。第三次 Tab 跨过字面块落在 peng；第四次落在 you。
+        type("xianzaiAPIpengyou")
+        tab()  // focus → xian
+        tab()  // focus → zai
+        let state = tab()  // focus → peng（跳过字面块 API）
+        XCTAssertNotNil(state.focusedSegmentIndex)
+        // peng 在 fixture 词典中无候选条目；这里仅验证焦点跨过字面块继续推进。
+        // 通过 items 中 focus 索引对应项的拼音确认
+        guard let idx = state.focusedSegmentIndex, idx < state.items.count else {
+            XCTFail("focus index should be valid")
+            return
+        }
+        XCTAssertEqual(state.items[idx].sourcePinyin, "peng")
+    }
+
+    func testMixedShiftTabFocusesPenultimatePinyinChunk() {
+        // xianzaiAPIpengyou：从空闲 backward Tab 跳过末段（活跃输入段），focus 倒数第二个
+        // 可编辑 chunk = peng（you 是末段）；与纯拼音模式 backward Tab 行为一致。
+        type("xianzaiAPIpengyou")
+        let state = shiftTab()
+        guard let idx = state.focusedSegmentIndex, idx < state.items.count else {
+            XCTFail("focus index should be valid after backward tab")
+            return
+        }
+        XCTAssertEqual(state.items[idx].sourcePinyin, "peng")
+    }
+
+    func testMixedTabConfirmPreservesLiteralSpan() {
+        // xianzaiAPIpengyou：Tab focus 首 chunk「xian」，按空格确认；
+        // 字面块 API 应保留在缓冲区，不能因 confirmFocusedSegment 重建 rawSpans 而丢失。
+        type("xianzaiAPIpengyou")
+        tab()
+        let state = space()
+        XCTAssertNil(state.committedText, "未确认完末段，不应整体提交")
+        XCTAssertTrue(
+            state.items.contains(where: {
+                if case .text(let s) = $0 { return s == "西安" }
+                return false
+            }),
+            "首 chunk 应被确认为 .text(\"西安\")（fixture 中 xian 单音节首选）")
+        XCTAssertTrue(
+            state.items.contains(where: { $0.isLiteral && $0.content == "API" }),
+            "字面块 API 应保留在缓冲区")
+    }
+
+    // MARK: - Mixed Buffer Pin (混输态固顶)
+    //
+    // 混输态 pin 仅对首拼音段备选有意义；命中字面块候选或整句 pos 1 → no-op。
+
+    func testMixedPinFirstSpanCandidateUsesFirstSegmentPinyin() {
+        // 用独立的 PinnedWordStore 注入 engine，验证 pin「西安」后写入 key = "xianzai"。
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
+        let pinnedWords = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = PinyinEngine(
+            zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
+            pinnedChars: nil, pinnedWords: pinnedWords)
+
+        for ch in "xianzaiAPIpengyou" { _ = testEngine.process(.letter(ch)) }
+        let state = testEngine.currentState
+        // 候选 = [整句, 现在, 西安]；pin pos 3「西安」（index 2），key 取首段 pinyin "xianzai"
+        guard let idx = state.candidates.firstIndex(of: "西安") else {
+            XCTFail("「西安」应出现在 xianzaiAPIpengyou 的候选中")
+            return
+        }
+        XCTAssertTrue(testEngine.pinCandidate(atIndex: idx))
+        XCTAssertEqual(
+            pinnedWords.pinnedWords(for: "xianzai"), ["西安"],
+            "pin key 应为首拼音段的规范化 pinyin「xianzai」")
+    }
+
+    func testMixedPinLiteralCandidateIsNoOp() {
+        // APIxianzai：pos 1 = 「API 现在」，pos 2 = 「API」（字面块本身）。
+        // pin pos 2 应静默 no-op，store 内不应写入。
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
+        let pinnedWords = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = PinyinEngine(
+            zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
+            pinnedChars: nil, pinnedWords: pinnedWords)
+
+        for ch in "APIxianzai" { _ = testEngine.process(.letter(ch)) }
+        let state = testEngine.currentState
+        guard let idx = state.candidates.firstIndex(of: "API") else {
+            XCTFail("字面块「API」应作为 pos 2 候选出现")
+            return
+        }
+        XCTAssertFalse(
+            testEngine.pinCandidate(atIndex: idx),
+            "字面块候选无对应 pinyin key，pin 应 no-op")
+        // 任何 pinyin key 下都不应有写入痕迹
+        XCTAssertTrue(pinnedWords.pinnedWords(for: "xianzai").isEmpty)
+        XCTAssertTrue(pinnedWords.pinnedWords(for: "API").isEmpty)
+    }
+
+    func testMixedPinSentenceCandidateIsNoOp() {
+        // 整句 pos 1 = 合成结果含字面块原文，无单一 pinyin key，pin 应 no-op。
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
+        let pinnedWords = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = PinyinEngine(
+            zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
+            pinnedChars: nil, pinnedWords: pinnedWords)
+
+        for ch in "xianzaiAPIpengyou" { _ = testEngine.process(.letter(ch)) }
+        XCTAssertFalse(
+            testEngine.pinCandidate(atIndex: 0),
+            "pos 1 整句候选无单一 pinyin key，pin 应 no-op")
+        XCTAssertTrue(pinnedWords.pinnedWords(for: "xianzai").isEmpty)
+    }
+
     // MARK: - ComposingItem Boundary Space Rule
 
     func testComposingItemBoundaryHanLatinAcrossText() {

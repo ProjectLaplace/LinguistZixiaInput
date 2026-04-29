@@ -825,8 +825,11 @@ public class PinyinEngine {
     /// 处理以词定字
     private func handleBracket(pickLast: Bool) -> String? {
         guard activeCandidateIndex < candidates.count else { return nil }
-        // 混输态下候选是整句合成（含字面块原文），以词定字语义不再对应单一拼音段，直接 no-op
-        if rawSpans.contains(where: { $0.isLiteral }) { return nil }
+        // 混输态下候选是整句合成（含字面块原文），以词定字语义对应「首/末拼音段
+        // 取首/末字 + 陪同字面块」，独立于 active candidate，由专属路径处理。
+        if rawSpans.contains(where: { $0.isLiteral }) {
+            return handleMixedBracket(pickLast: pickLast)
+        }
         let active = candidates[activeCandidateIndex]
         guard let char = pickCharacter(from: active, pickLast: pickLast) else { return nil }
 
@@ -856,12 +859,84 @@ public class PinyinEngine {
         return result
     }
 
+    /// 混输态以词定字：先把首个 `.pinyin` 段之前的所有前置字面块逐个确认为
+    /// 已确认 `.text`（按原顺序追加到预编辑文本前缀），再对该首拼音段按 `[` / `]`
+    /// 取首选的首字或末字，整段消耗后亦以 `.text` 追加。
+    ///
+    /// 字面块在混输输入中天然构成词边界，故每个拼音段都是独立的「词」单位 ——
+    /// 不论 `[` 还是 `]` 都以「首拼音段」为对象，二者的差异仅在于从该段首选
+    /// 汉字串里选首字还是末字。
+    ///
+    /// 提交语义：取字后若 `rawSpans` 不再含 `.pinyin` 段（空，或仅剩字面块），
+    /// 则将预编辑文本与剩余字面块一并直接提交到宿主文档（中↔拉边界空格由
+    /// `joinedCommitText` 统一处理），并重置全部状态；若仍含 `.pinyin` 段，则
+    /// 保留 buffer 继续组词。
+    private func handleMixedBracket(pickLast: Bool) -> String? {
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+
+        // 1. 定位首个 `.pinyin` 段；若已无拼音段（仅字面块），无可操作目标，原状返回
+        guard
+            let targetIdx = rawSpans.indices.first(where: { !rawSpans[$0].isLiteral }),
+            case .pinyin(let raw) = rawSpans[targetIdx]
+        else {
+            return nil
+        }
+
+        // 2. 对目标段求首选并按 `[` / `]` 取首字 / 末字；候选缺失时原状返回，
+        //    避免在已对前置字面块做修改前就因取字失败而留下半成品状态
+        let cleaned = raw.lowercased().replacingOccurrences(of: "'", with: "")
+        let normalized = Self.normalizePinyin(cleaned)
+        let topCandidate: String?
+        if let conv = store.flatMap({
+            Conversion.compose(
+                normalized, store: $0, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
+        }) {
+            topCandidate = conv.text
+        } else {
+            topCandidate = (store?.candidates(for: normalized) ?? []).first
+        }
+        guard let topText = topCandidate,
+            let char = pickCharacter(from: topText, pickLast: pickLast)
+        else { return nil }
+
+        // 3. 收纳已确认前缀（前序 .text），随后按顺序追加：前置字面块 → picked char
+        var confirmedPrefix = composingItems.filter { !$0.isEditable && !$0.isLiteral }
+        for span in rawSpans[..<targetIdx] {
+            if case .literal(let s) = span {
+                confirmedPrefix.append(.text(s))
+            }
+        }
+        confirmedPrefix.append(.text(char))
+        composingItems = confirmedPrefix
+
+        // 4. 移除已确认的前置字面块与目标拼音段；后续 spans（中置字面块、后续拼音段）保留
+        rawSpans.removeSubrange(...targetIdx)
+        focusIndex = nil
+
+        // 5. 若已无拼音段（rawSpans 为空或仅剩字面块），把预编辑文本与剩余字面块
+        //    一并直接提交：将剩余字面块作为 `.literal` 项追加，由 `joinedCommitText`
+        //    统一按中↔拉边界规则插入空格
+        if !rawSpans.contains(where: { !$0.isLiteral }) {
+            for span in rawSpans {
+                if case .literal(let s) = span {
+                    composingItems.append(.literal(s))
+                }
+            }
+            let result = joinedCommitText(composingItems)
+            resetAll()
+            return result
+        }
+
+        rebuildFromRawPinyin()
+        return nil
+    }
+
     // MARK: - Tab 导航
 
-    /// 处理 Tab 键：在可编辑段之间移动焦点
+    /// 处理 Tab 键：在可编辑段之间移动焦点。
+    /// 混输态下字面块（`.literal`）不属于可编辑项，editable 序列天然只剩拼音段，
+    /// 焦点自然在拼音段之间循环；边界规则与纯拼音模式一致。
     private func handleTab(backward: Bool) {
-        // 混输态下候选是整句合成，Tab 段聚焦无明确语义，直接 no-op
-        if rawSpans.contains(where: { $0.isLiteral }) { return }
         let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
         guard !editableIndices.isEmpty else { return }
 
@@ -1492,9 +1567,42 @@ public class PinyinEngine {
         }
     }
 
-    /// 从 composingItems 中残存的可编辑项重建 rawPinyin
+    /// 从 composingItems 中残存的可编辑项与字面块重建 rawSpans。
+    /// 纯拼音路径（无字面块）：折叠为单一 `.pinyin` 段，与历史行为一致。
+    /// 混输路径：按 composingItems 顺序拼装，保留字面块作为独立 `.literal` span，
+    /// 避免 Tab 聚焦确认后字面块结构丢失。
     private func rebuildRawPinyinFromItems() {
-        rawPinyin = composingItems.compactMap { $0.sourcePinyin }.joined()
+        guard composingItems.contains(where: { $0.isLiteral }) else {
+            rawPinyin = composingItems.compactMap { $0.sourcePinyin }.joined()
+            return
+        }
+        var newSpans: [RawSpan] = []
+        var pendingPinyin = ""
+        for item in composingItems {
+            switch item {
+            case .literal(let s):
+                if !pendingPinyin.isEmpty {
+                    newSpans.append(.pinyin(pendingPinyin))
+                    pendingPinyin = ""
+                }
+                newSpans.append(.literal(s))
+            case .pinyin(let s):
+                pendingPinyin += s
+            case .provisional(let pinyin, _):
+                pendingPinyin += pinyin
+            case .text:
+                // 已确认段不进 rawSpans；它出现在已 Tab 聚焦确认的位置时
+                // 充当字面块前后的「断点」，需 flush pending 避免相邻拼音段意外合并
+                if !pendingPinyin.isEmpty {
+                    newSpans.append(.pinyin(pendingPinyin))
+                    pendingPinyin = ""
+                }
+            }
+        }
+        if !pendingPinyin.isEmpty {
+            newSpans.append(.pinyin(pendingPinyin))
+        }
+        rawSpans = newSpans
     }
 
     /// 获取用于 Enter 提交的原文（拼音原文 + 已确定文本 + 字面块原样）。
@@ -1641,15 +1749,31 @@ public class PinyinEngine {
     /// 校验 pin/unpin 的前置条件并返回用作 pinyin key 的规范化字符串。
     /// 仅在「拼音模式 + 缓冲区无已确认文本 + Tab 未聚焦 + 索引合法」时返回非 nil。
     /// 多音节会被自动切分成多个 .pinyin 段，所以不限制段数；只要求所有段都是
-    /// 未确认的拼音输入（没有 .text 前缀），且 rawPinyin 非空。
+    /// 未确认的拼音输入或字面块（没有 .text 前缀），且至少存在一个拼音段。
+    ///
+    /// 混输态（rawSpans 含字面块）下的 pin 语义：
+    /// - 整句候选（pos 1）：合成结果含字面块原文，与单一拼音键无对应关系，拒绝；
+    /// - 字面块候选（命中 `mixedFirstLiteralCandidates`）：字面块本身没有 pinyin，拒绝；
+    /// - 首拼音段备选（命中 `mixedFirstSpanCandidates`）：取首拼音段规范化 pinyin 作 key，
+    ///   与纯拼音模式 pin 首段补充候选的语义一致。
     private func pinnableContext(forIndex index: Int) -> String? {
         guard currentMode == .pinyin else { return nil }
         guard !composingItems.isEmpty else { return nil }
-        guard composingItems.allSatisfy({ $0.isEditable }) else { return nil }
-        // 含字面块的混输态不支持 pin：候选是整句合成，与单一拼音键无对应关系
-        guard !rawSpans.contains(where: { $0.isLiteral }) else { return nil }
+        // 已存在 .text 前缀（部分确认状态）时不允许 pin；字面块属于 rawSpans 派生项，允许通过
+        guard composingItems.allSatisfy({ $0.isEditable || $0.isLiteral }) else { return nil }
         guard focusIndex == nil else { return nil }
         guard index >= 0 && index < candidates.count else { return nil }
+
+        // 混输态：仅允许 pin 命中首拼音段备选的候选，pin key 取首拼音段的规范化 pinyin
+        if rawSpans.contains(where: { $0.isLiteral }) {
+            let candidate = candidates[index]
+            guard mixedFirstSpanCandidates.contains(candidate) else { return nil }
+            guard case .pinyin(let firstRaw) = rawSpans.first else { return nil }
+            let cleanFirst = Self.normalizePinyin(
+                firstRaw.lowercased().replacingOccurrences(of: "'", with: ""))
+            return cleanFirst.isEmpty ? nil : cleanFirst
+        }
+
         let cleanPinyin = Self.normalizePinyin(
             rawPinyin.lowercased().replacingOccurrences(of: "'", with: ""))
         guard !cleanPinyin.isEmpty else { return nil }
