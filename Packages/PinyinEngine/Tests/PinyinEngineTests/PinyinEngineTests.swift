@@ -253,22 +253,36 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertTrue(state.items.isEmpty)
     }
 
-    func testEscInComposeModeCommitsTextDiscardsRemaining() {
-        // 「开」+ jishu，ESC 应提交 「开」 并丢弃 jishu
+    func testEscInComposeModeDiscardsAll() {
+        // 「开」+ jishu，ESC 应清空整个缓冲区，不向宿主写出任何内容
         type("kaifajishu")
         cycleActive()
         bracketLeft()  // 「开」 + jishu
         let state = esc()
-        XCTAssertEqual(state.committedText, "开")
+        XCTAssertNil(state.committedText)
         XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
     }
 
     func testEscWithOnlyPinyinDiscardsAll() {
-        // 缓冲区里只有拼音段时，ESC 维持原有的「全部丢弃」语义
+        // 缓冲区里只有拼音段时，ESC 清空缓冲区并重置引擎
         type("shi")
         let state = esc()
         XCTAssertNil(state.committedText)
         XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testEscWithLiteralBlockDiscardsAll() {
+        // 混输态下字面块（如「xianzai API」中的「API」）也属于缓冲区，
+        // ESC 应一并清空，不向宿主写出任何内容
+        type("xianzai")
+        _ = engine.process(.letter("A"))
+        _ = engine.process(.letter("P"))
+        _ = engine.process(.letter("I"))
+        let state = esc()
+        XCTAssertNil(state.committedText)
+        XCTAssertTrue(state.items.isEmpty)
+        XCTAssertTrue(state.candidates.isEmpty)
     }
 
     func testCycleActiveCandidateNoOpWithSingleCandidate() {
