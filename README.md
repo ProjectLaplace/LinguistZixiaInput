@@ -38,7 +38,7 @@ A deterministic pinyin input method for macOS, designed for muscle memory and fl
 
 - **输入确定性**：单字和常用词的候选顺序固定，建立肌肉记忆后可盲打。
 - **长串组词**：多音节输入自动按词典切分组词，将整词候选优先于逐字组合呈现。基于上下文的候选调整（bigram）将在后续开发中尝试实现。
-- **视觉稳定性**：候选栏宽度固定、布局不跳动，减少不必要的视觉打扰。
+- **视觉稳定性**：候选栏宽度固定、布局不跳动，减少不必要的视觉打扰。（当前实现尚未完全达到——单字母候选数较少时候选栏会缩短，详见 Roadmap。）
 - **最少交互**：通过盲打和组词一次成功，减少选字、编辑、删除的操作。
 
 设计上让输入法退到意识之外，保持思考的专注与心流。
@@ -81,6 +81,24 @@ A deterministic pinyin input method for macOS, designed for muscle memory and fl
 跨平台不是后续附加目标，而是项目自始即有的架构约束。当前引擎采用 Swift 实现，是为了与项目开发早期阶段的 macOS IME 客户端共享语言栈，减少验证阶段的工程复杂度。引擎层保持纯逻辑、低依赖、与 UI 解耦，正是为了在核心行为稳定后，可以通过人工审查和 LLM 辅助迁移，将其转换为更适合跨平台分发的实现语言，例如 Rust。
 
 由于作者以 macOS 作为主力操作系统，在以 Linux、Windows 或其他系统作为主力操作系统的项目成员加入之前，非 macOS 客户端的开发优先级可能低于引擎稳定性、macOS 体验与词库质量。
+
+## Roadmap
+
+下列是当前规划中较具体的开发方向，按时间感分为短中期与长期。具体可追踪条目见 GitHub issues。
+
+### 短中期
+
+- 候选栏宽度真正稳定（单字母候选不缩栏）
+- 热键全面可定制（[#14](https://github.com/ProjectLaplace/LinguistZixiaInput/issues/14)）
+- IMK app 自动化测试可行性调研与基础测试 case 列表（[#15](https://github.com/ProjectLaplace/LinguistZixiaInput/issues/15)）
+- 真正中英文混合输入：合法英文小写词作为独立候选（[#17](https://github.com/ProjectLaplace/LinguistZixiaInput/issues/17)）
+
+### 长期
+
+- bigram 上下文候选调整
+- 简繁切换（[#4](https://github.com/ProjectLaplace/LinguistZixiaInput/issues/4)）
+- 自研候选区 UI（脱离 IMK 限制）
+- 引擎层 Rust 重写（跨平台分发的前提）
 
 ## 构建
 
