@@ -561,7 +561,7 @@ class LaplaceInputController: IMKInputController {
         if currentState.items.isEmpty {
             Self.indicator.hide()
         } else {
-            Self.indicator.show(near: cursorRect)
+            Self.indicator.show(near: cursorRect == .zero ? lastCursorRect : cursorRect)
         }
     }
 }
@@ -569,6 +569,11 @@ class LaplaceInputController: IMKInputController {
 // MARK: - 浮动指示器窗口
 
 class LaplaceIndicator {
+    private static let estimatedCandidatePanelWidth: CGFloat = 358
+    private static let estimatedCandidatePanelHeight: CGFloat = 32
+    private static let defaultOffset = NSPoint(x: -47, y: -32)
+    private static let aboveCursorGap: CGFloat = 8
+
     private let panel: NSPanel
     private let iconView: NSImageView
     private let label: NSTextField
@@ -619,11 +624,36 @@ class LaplaceIndicator {
         iconView.isHidden = iconView.image == nil
     }
 
-    func show(near cursorRect: NSRect) {
-        let x = cursorRect.origin.x - 47
-        let y = cursorRect.origin.y - 32
+    private func screen(for rect: NSRect) -> NSScreen? {
+        let point = NSPoint(x: rect.midX, y: rect.midY)
+        return NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+    }
 
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    private func indicatorOrigin(near cursorRect: NSRect) -> NSPoint {
+        let visibleFrame = screen(for: cursorRect)?.visibleFrame
+
+        var x = cursorRect.origin.x + Self.defaultOffset.x
+        var y = cursorRect.origin.y + Self.defaultOffset.y
+
+        if let visibleFrame {
+            let candidateRightEdge = cursorRect.origin.x + Self.estimatedCandidatePanelWidth
+            let overflow = max(0, candidateRightEdge - visibleFrame.maxX)
+            x -= overflow
+
+            let candidateBottomEdge = cursorRect.origin.y - Self.estimatedCandidatePanelHeight
+            if candidateBottomEdge < visibleFrame.minY {
+                y = cursorRect.maxY + Self.aboveCursorGap
+            }
+
+            x = min(max(x, visibleFrame.minX), visibleFrame.maxX - panel.frame.width)
+            y = min(max(y, visibleFrame.minY), visibleFrame.maxY - panel.frame.height)
+        }
+
+        return NSPoint(x: x, y: y)
+    }
+
+    func show(near cursorRect: NSRect) {
+        panel.setFrameOrigin(indicatorOrigin(near: cursorRect))
         panel.orderFront(nil)
     }
 
@@ -666,9 +696,7 @@ class LaplaceIndicator {
         label.textColor = .white
         container.layer!.backgroundColor = NSColor.systemGreen.cgColor
 
-        let x = cursorRect.origin.x - 47
-        let y = cursorRect.origin.y - 32
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        panel.setFrameOrigin(indicatorOrigin(near: cursorRect))
         panel.orderFront(nil)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
