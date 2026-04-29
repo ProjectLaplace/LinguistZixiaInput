@@ -420,11 +420,10 @@ public class PinyinEngine {
             f.dateFormat = "yyyy-MM-dd"
             return f.string(from: Date())
         },
-        "vtime": {
-            let f = DateFormatter()
-            f.dateFormat = "HH:mm"
-            return f.string(from: Date())
-        },
+        "vtime": { vCommandISODateTime() },
+        "vti": { vCommandISODateTime() },
+        "vtimeu": { vCommandISODateTimeUTC() },
+        "vtiu": { vCommandISODateTimeUTC() },
         "vdatetime": { vCommandDateTime() },
         "vdt": { vCommandDateTime() },
         "vcdate": {
@@ -451,7 +450,21 @@ public class PinyinEngine {
 
     private static func vCommandDateTime() -> String {
         let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd HH:mm"
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f.string(from: Date())
+    }
+
+    private static func vCommandISODateTime() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXX"
+        return f.string(from: Date())
+    }
+
+    private static func vCommandISODateTimeUTC() -> String {
+        let f = DateFormatter()
+        f.timeZone = TimeZone(identifier: "UTC")
+        // 「'Z'」为字面量 Z（Zulu time 标记），与格式 token「Z」（输出数字偏移）区分
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
         return f.string(from: Date())
     }
 

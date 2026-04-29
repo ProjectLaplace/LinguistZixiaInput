@@ -1409,4 +1409,60 @@ final class PinyinEngineTests: XCTestCase {
             ComposingItem.needsSeparatorSpace(
                 before: .pinyin("xianzai"), after: .text("朋友")))
     }
+
+    // MARK: - V Command Time
+
+    private func runVCommand(_ name: String) -> String {
+        for char in name { _ = engine.process(.letter(char)) }
+        let state = engine.process(.space)
+        return state.committedText ?? ""
+    }
+
+    func testVTimeOutputsISO8601WithLocalOffset() {
+        let output = runVCommand("vtime")
+        let pattern = #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"#
+        XCTAssertNotNil(
+            output.range(of: pattern, options: .regularExpression),
+            "vtime output \(output) should match yyyy-MM-ddTHH:mm:ss±HH:MM")
+    }
+
+    func testVTiAliasMatchesVTime() {
+        let output = runVCommand("vti")
+        let pattern = #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"#
+        XCTAssertNotNil(
+            output.range(of: pattern, options: .regularExpression),
+            "vti output \(output) should match yyyy-MM-ddTHH:mm:ss±HH:MM")
+    }
+
+    func testVTimeUOutputsISO8601UTC() {
+        let output = runVCommand("vtimeu")
+        let pattern = #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"#
+        XCTAssertNotNil(
+            output.range(of: pattern, options: .regularExpression),
+            "vtimeu output \(output) should match yyyy-MM-ddTHH:mm:ssZ")
+    }
+
+    func testVTiuAliasMatchesVTimeU() {
+        let output = runVCommand("vtiu")
+        let pattern = #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"#
+        XCTAssertNotNil(
+            output.range(of: pattern, options: .regularExpression),
+            "vtiu output \(output) should match yyyy-MM-ddTHH:mm:ssZ")
+    }
+
+    func testVDateTimeIncludesSeconds() {
+        let output = runVCommand("vdatetime")
+        let pattern = #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#
+        XCTAssertNotNil(
+            output.range(of: pattern, options: .regularExpression),
+            "vdatetime output \(output) should match yyyy-MM-dd HH:mm:ss")
+    }
+
+    func testVDtIncludesSeconds() {
+        let output = runVCommand("vdt")
+        let pattern = #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#
+        XCTAssertNotNil(
+            output.range(of: pattern, options: .regularExpression),
+            "vdt output \(output) should match yyyy-MM-dd HH:mm:ss")
+    }
 }
