@@ -197,4 +197,6 @@ benti|lun       本体论    本提论
 
 本项目以 GNU General Public License v3.0 (GPL-3.0) 发布。
 
+输入法是隐私意义上极为敏感的一类软件——它经手用户的每一次键盘输入，包括密码、私人对话与尚未发出的草稿。本项目认为这种数据敏感度只能依靠自由软件提供可验证的隐私承诺：源代码可被任何人审计，且任何派生分支必须同样保持源代码开放，使闭源派生悄然加入遥测或外发数据的路径不再可行。
+
 中文词库继承自 [rime-ice](https://github.com/iDvel/rime-ice) 与 [rime-frost](https://github.com/gaboolic/rime-frost)，均以 GPL-3.0 发布。
