@@ -178,10 +178,12 @@ benti|lun       本体论    本提论
 
 ## 文档
 
+> 注：项目仍处于早期开发阶段，文档可能与代码存在一定程度的滞后；如有不一致，以代码与实际运行行为为准。
+
 - [FEATURE.md](FEATURE.md) - 功能特性说明。
 - [DESIGN.md](DESIGN.md) - 状态机设计蓝图。
+- [docs/SHORTCUTS.md](docs/SHORTCUTS.md) - 键位与快捷键速查表。
 - [docs/IMK_MENU_ICON.md](docs/IMK_MENU_ICON.md) - macOS IMK 菜单图标维护要求。
-- [docs/IMK_TESTING.md](docs/IMK_TESTING.md) - IMK 自动化测试策略。
 
 ## 致谢
 
