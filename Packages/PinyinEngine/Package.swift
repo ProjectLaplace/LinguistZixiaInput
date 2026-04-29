@@ -23,7 +23,8 @@ let package = Package(
             name: "PinyinEngine",
             dependencies: [],
             resources: [
-                .process("Resources")
+                .copy("Seeds"),
+                .process("Resources"),
             ],
             plugins: [
                 .plugin(name: "BuildInfoPlugin")

@@ -8,6 +8,7 @@
 import Carbon
 import Cocoa
 import InputMethodKit
+import PinyinEngine
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -16,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         registerInputSourceIfNeeded()
+        CustomPhraseStore.seedDefaultIfMissing()
 
         server = IMKServer(
             name: "LaplaceIME_Connection",

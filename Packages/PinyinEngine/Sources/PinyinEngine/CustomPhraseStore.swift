@@ -331,4 +331,30 @@ public class CustomPhraseStore {
         let path = appSupport.appendingPathComponent("LaplaceIME/custom_phrases.toml").path
         return CustomPhraseStore(path: path)
     }
+
+    /// 首启 seed：若用户目录下尚无 `custom_phrases.toml`，从 bundle 内的
+    /// `Seeds/custom_phrases.toml` 拷贝一份过去。已存在则不动，确保用户后续
+    /// 编辑不被覆盖。失败静默——用户层缺失等价于无自定义短语。
+    public static func seedDefaultIfMissing() {
+        guard
+            let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first
+        else { return }
+        let targetDir = appSupport.appendingPathComponent("LaplaceIME")
+        let target = targetDir.appendingPathComponent("custom_phrases.toml")
+        guard !FileManager.default.fileExists(atPath: target.path) else { return }
+        guard
+            let source = Bundle.module.url(
+                forResource: "custom_phrases", withExtension: "toml",
+                subdirectory: "Seeds")
+        else { return }
+        do {
+            try FileManager.default.createDirectory(
+                at: targetDir, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: source, to: target)
+        } catch {
+            // 忽略
+        }
+    }
 }
