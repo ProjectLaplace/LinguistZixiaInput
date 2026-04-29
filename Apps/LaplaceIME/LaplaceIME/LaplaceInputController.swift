@@ -436,14 +436,24 @@ class LaplaceInputController: IMKInputController {
         let items = currentState.items
 
         for (index, item) in items.enumerated() {
-            // Insert space between adjacent pinyin/provisional segments
-            if index > 0 && item.isEditable && items[index - 1].isEditable {
-                result.append(
-                    NSAttributedString(
-                        string: " ",
-                        attributes: [
-                            .underlineStyle: NSUnderlineStyle.single.rawValue
-                        ]))
+            // 相邻两项之间插入空格 iff 两侧都不是已确认 .text。
+            // 拼音/预览/字面块互相之间都加空格作为视觉分隔；
+            // 已确认 .text 与任何项相邻时不加空格（中文衔接由 commit 时的内容决定）。
+            if index > 0 {
+                let prevIsText: Bool = {
+                    if case .text = items[index - 1] { return true } else { return false }
+                }()
+                let curIsText: Bool = {
+                    if case .text = item { return true } else { return false }
+                }()
+                if !prevIsText && !curIsText {
+                    result.append(
+                        NSAttributedString(
+                            string: " ",
+                            attributes: [
+                                .underlineStyle: NSUnderlineStyle.single.rawValue
+                            ]))
+                }
             }
 
             let text: String
@@ -470,6 +480,12 @@ class LaplaceInputController: IMKInputController {
                         ? NSUnderlineStyle.single.rawValue
                         : NSUnderlineStyle.patternDash.rawValue | NSUnderlineStyle.single.rawValue,
                     .foregroundColor: isFocused ? NSColor.systemBlue : NSColor.textColor,
+                ]
+            case .literal(let s):
+                text = s
+                attrs = [
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .foregroundColor: NSColor.textColor,
                 ]
             }
 

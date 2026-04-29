@@ -835,4 +835,96 @@ final class PinyinEngineTests: XCTestCase {
         let committed = number(1)
         XCTAssertEqual(committed.committedText, state.candidates[0])
     }
+
+    // MARK: - Uppercase Literal Mixed Input (大写字面块混输)
+    //
+    // 测试 fixture 词典体量较小，可用的多音节词包括 xianzai/现在、pengyou/朋友、
+    // beijing/北京、shijian/时间 等。混输 case 依据这些已知词构造。
+
+    func testUppercaseLiteralOnlyBuffer() {
+        // 纯字面块：API 不参与拼音切分，候选与提交保持原样
+        let state = type("API")
+        XCTAssertEqual(state.items, [.literal("API")])
+        XCTAssertEqual(state.candidates, ["API"])
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "API")
+    }
+
+    func testLiteralThenPinyinComposes() {
+        // 字面块 + 拼音：APIpengyou → 「API 朋友」
+        let state = type("APIpengyou")
+        XCTAssertEqual(state.candidates.first, "API 朋友")
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "API 朋友")
+    }
+
+    func testPinyinThenLiteralComposes() {
+        // 拼音 + 字面块：xianzaiAPI → 「现在 API」
+        let state = type("xianzaiAPI")
+        XCTAssertEqual(state.candidates.first, "现在 API")
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "现在 API")
+    }
+
+    func testPinyinLiteralPinyinComposes() {
+        // 拼音 + 字面块 + 拼音：xianzaiAPIpengyou → 「现在 API 朋友」
+        let state = type("xianzaiAPIpengyou")
+        XCTAssertEqual(state.candidates.first, "现在 API 朋友")
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "现在 API 朋友")
+    }
+
+    func testConsecutiveUppercaseAggregatesIntoSingleLiteral() {
+        // 多个连续大写字母聚合为单一字面块
+        let state = type("USApengyou")
+        let literalItems = state.items.filter { $0.isLiteral }
+        XCTAssertEqual(
+            literalItems.count, 1,
+            "Consecutive uppercase letters should collapse into one literal block")
+        XCTAssertEqual(literalItems.first?.content, "USA")
+        XCTAssertEqual(state.candidates.first, "USA 朋友")
+    }
+
+    func testUppercaseIDoesNotTriggerJapaneseTransientMode() {
+        // 大写 I 在空 buffer 起首时必须走字面块路径，不应触发日文 transient 模式
+        let state = engine.process(.letter("I"))
+        XCTAssertEqual(state.mode, .pinyin, "Uppercase I must not toggle transient mode")
+        XCTAssertEqual(state.items, [.literal("I")])
+        XCTAssertEqual(state.candidates, ["I"])
+    }
+
+    func testLowercaseIStillTogglesTransientModeAtBoundary() {
+        // 小写 i 在段落边界处仍是 transient 模式开关
+        let state = engine.process(.letter("i"))
+        XCTAssertEqual(state.mode, .transient)
+        XCTAssertTrue(state.items.isEmpty)
+    }
+
+    func testBackspaceTrimsLiteralBlockTailFirst() {
+        // 退格从字面块尾部逐字符删除，删空后整块消失
+        type("xianzaiAPI")
+        var state = backspace()
+        XCTAssertEqual(state.items.last?.content, "AP")
+        XCTAssertEqual(state.candidates.first, "现在 AP")
+        state = backspace()
+        XCTAssertEqual(state.items.last?.content, "A")
+        state = backspace()
+        // 字面块删空后回到纯拼音组词路径
+        XCTAssertFalse(state.items.contains(where: { $0.isLiteral }))
+        XCTAssertEqual(state.candidates.first, "现在")
+    }
+
+    func testEnterCommitsRawWithLiteralSpacing() {
+        // Enter 提交原文，中英边界保留空格
+        type("xianzaiAPIpengyou")
+        let committed = enter()
+        XCTAssertEqual(committed.committedText, "xianzai API pengyou")
+    }
+
+    func testLiteralStartingBufferOpensSpan() {
+        // 空 buffer 起首的大写字母直接开启字面块
+        let state = type("A")
+        XCTAssertEqual(state.items, [.literal("A")])
+        XCTAssertEqual(state.candidates, ["A"])
+    }
 }

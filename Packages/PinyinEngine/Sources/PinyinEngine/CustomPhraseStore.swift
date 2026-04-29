@@ -37,6 +37,17 @@ public class CustomPhraseStore {
         return table[name] != nil
     }
 
+    /// Check whether any phrase name has the given string as a prefix.
+    /// 用于字母输入阶段判定继续累积是否仍有可能命中已注册短语；空 prefix 视为
+    /// 任意非空短语库都满足。区分大小写，与 `hasPhrase` 一致。
+    public func hasPhrasePrefix(_ prefix: String) -> Bool {
+        if prefix.isEmpty { return !table.isEmpty }
+        for name in table.keys {
+            if name.hasPrefix(prefix) { return true }
+        }
+        return false
+    }
+
     // MARK: - TOML parser for [phrases] section
 
     private static func parse(_ content: String) -> [String: [String]] {

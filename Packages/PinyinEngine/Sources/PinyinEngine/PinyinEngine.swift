@@ -1,12 +1,15 @@
 import Foundation
 
-/// 组合项：可以是确定的文本、待处理的拼音、或自动匹配的预览。
-/// 复合缓冲区架构的核心，支持「以词定字」后的持续组词。
+/// 组合项：可以是确定的文本、待处理的拼音、自动匹配的预览，或字面块。
+/// 复合缓冲区架构的核心，支持「以词定字」后的持续组词以及大小写混输。
 public enum ComposingItem: Equatable {
     case text(String)
     case pinyin(String)
     /// 自动匹配的预览项：显示候选汉字，但仍可通过 Tab 聚焦后替换
     case provisional(pinyin: String, candidate: String)
+    /// 字面块：连续大写字母聚合为一个不参与拼音切分的英文片段，
+    /// 提交时按原样保留（如 API、USA），与相邻拼音段在中英边界自动加空格。
+    case literal(String)
 
     /// 是否为活跃的拼音输入项
     public var isPinyin: Bool {
@@ -14,11 +17,17 @@ public enum ComposingItem: Equatable {
         return false
     }
 
-    /// 是否为可编辑项（拼音或预览）
+    /// 是否为字面块
+    public var isLiteral: Bool {
+        if case .literal = self { return true }
+        return false
+    }
+
+    /// 是否为可编辑项（拼音或预览）。字面块由大写聚合规则维护，不参与 Tab 聚焦与候选选词。
     public var isEditable: Bool {
         switch self {
         case .pinyin, .provisional: return true
-        case .text: return false
+        case .text, .literal: return false
         }
     }
 
@@ -27,15 +36,58 @@ public enum ComposingItem: Equatable {
         switch self {
         case .pinyin(let s): return s
         case .provisional(let pinyin, _): return pinyin
-        case .text: return nil
+        case .text, .literal: return nil
         }
     }
 
     /// 获取该项的显示文本内容
     public var content: String {
         switch self {
-        case .text(let s), .pinyin(let s): return s
+        case .text(let s), .pinyin(let s), .literal(let s): return s
         case .provisional(_, let candidate): return candidate
+        }
+    }
+}
+
+/// 输入序列中的原始片段：拼音段（小写字母 / 撇号）或字面块（连续大写字母聚合）。
+/// 引擎内部按输入顺序维护片段列表，驱动混输组词时按片段类型分别处理。
+internal enum RawSpan: Equatable {
+    case pinyin(String)
+    case literal(String)
+
+    var isLiteral: Bool {
+        if case .literal = self { return true }
+        return false
+    }
+
+    /// 片段长度（字符数）。用于退格按字符回退。
+    var length: Int {
+        switch self {
+        case .pinyin(let s), .literal(let s): return s.count
+        }
+    }
+
+    /// 在尾部追加一个字符；若类型不匹配返回 nil（调用方需新建片段）。
+    func appending(_ char: Character) -> RawSpan? {
+        switch self {
+        case .pinyin(let s):
+            guard !char.isUppercase else { return nil }
+            return .pinyin(s + String(char))
+        case .literal(let s):
+            guard char.isUppercase else { return nil }
+            return .literal(s + String(char))
+        }
+    }
+
+    /// 删除尾部一个字符；空串返回 nil（调用方应将该片段从列表移除）。
+    func droppingLast() -> RawSpan? {
+        switch self {
+        case .pinyin(let s):
+            let next = String(s.dropLast())
+            return next.isEmpty ? nil : .pinyin(next)
+        case .literal(let s):
+            let next = String(s.dropLast())
+            return next.isEmpty ? nil : .literal(next)
         }
     }
 }
@@ -118,7 +170,32 @@ public class PinyinEngine {
     private var activeCandidateIndex: Int = 0
 
     // 自动切分状态
-    private var rawPinyin: String = ""  // 当前正在输入的完整拼音串
+    /// 原始输入序列：按输入顺序排列的拼音段与字面块。
+    /// 拼音段对应连续小写字母（含撇号），字面块对应连续大写字母聚合而成的英文片段。
+    /// 不含字面块时与单一拼音串等价；含字面块时驱动混输组词流程。
+    private var rawSpans: [RawSpan] = []
+
+    /// 当前正在输入的完整拼音串：所有拼音段按顺序拼接。
+    /// 字面块**不参与**该串，但仍出现在 `rawSpans` 中。
+    /// 用作纯拼音路径（v 命令、glitch 日志、撇号语义判定等）的兼容接口。
+    private var rawPinyin: String {
+        get {
+            rawSpans.compactMap { span -> String? in
+                if case .pinyin(let s) = span { return s }
+                return nil
+            }.joined()
+        }
+        set {
+            // 写入语义：丢弃所有现有 span，重置为单一拼音段（或空）。
+            // 仅供既有路径（compose 模式回填、`confirmFirstSegment` 等纯拼音流程）使用，
+            // 这些路径不会与字面块共存。
+            if newValue.isEmpty {
+                rawSpans = []
+            } else {
+                rawSpans = [.pinyin(newValue)]
+            }
+        }
+    }
 
     private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
 
@@ -426,34 +503,80 @@ public class PinyinEngine {
 
     // MARK: - 字母输入
 
-    /// 处理字母按键：涉及模式切换、拼音追加与自动切分
+    /// 处理字母按键：涉及模式切换、拼音追加、字面块聚合与自动切分。
+    ///
+    /// 大写字母（含 Caps Lock 触发）被聚合为字面块嵌入整句组词流程，
+    /// 不参与拼音切分但保留在最终候选字符串里。
+    /// 字面块与拼音段在中英边界自动加空格，与 macOS 系统拼音的混输行为对齐。
     private func handleLetter(_ char: Character) {
-        // 分段模式切换：在 Buffer 为空或处于段落边界（刚定完字）时，'i' 作为开关
+        // 分段模式切换：在 Buffer 为空或处于段落边界（刚定完字）时，小写 'i' 作为开关。
+        // 大写 I 必须走字面块路径，不应触发日文 transient 模式。
         let isAtSegmentBoundary =
             composingItems.isEmpty
             || (!composingItems.last!.isEditable)
-        if isAtSegmentBoundary && char.lowercased() == "i" {
+        if isAtSegmentBoundary && char == "i" {
             currentMode = (currentMode == .pinyin) ? .transient : .pinyin
             return
-        }
-
-        // 如果当前没有活跃的拼音输入（上次是 .text），开始新的拼音串
-        if rawPinyin.isEmpty && !composingItems.isEmpty && !composingItems.last!.isEditable {
-            // Starting a new pinyin segment after confirmed text
         }
 
         // Tab 聚焦模式下不追加字母，退出聚焦回到末尾
         focusIndex = nil
 
-        // 保留原始大小写，拼音匹配时各处自行 lowercase
-        rawPinyin += String(char)
+        appendCharToRawSpans(char)
 
         rebuildFromRawPinyin()
     }
 
+    /// 把一个字母追加到 `rawSpans` 末尾。大写归入字面块，小写（及撇号等）归入拼音段；
+    /// 类型不匹配时新开一个片段，从而实现连续大写自然聚合。
+    ///
+    /// 例外：当大写字母与既有 raw 串拼接后仍能命中某个自定义短语前缀时，
+    /// 退回到拼音段路径，保持 customPhrases 对大小写敏感短语名（如 `XL0`）的支持。
+    private func appendCharToRawSpans(_ char: Character) {
+        if char.isUppercase, !shouldOpenLiteralSpan(for: char) {
+            // 大写字母让步给 customPhrases 短语续输：作为拼音段字符追加。
+            // 由于 RawSpan.pinyin.appending 拒绝大写，此处需直接绕过 appending 守卫。
+            if let last = rawSpans.last, case .pinyin(let s) = last {
+                rawSpans[rawSpans.count - 1] = .pinyin(s + String(char))
+            } else {
+                rawSpans.append(.pinyin(String(char)))
+            }
+            return
+        }
+
+        if let last = rawSpans.last, let merged = last.appending(char) {
+            rawSpans[rawSpans.count - 1] = merged
+            return
+        }
+        if char.isUppercase {
+            rawSpans.append(.literal(String(char)))
+        } else {
+            rawSpans.append(.pinyin(String(char)))
+        }
+    }
+
+    /// 判定大写字母是否应开启字面块。当任何已注册自定义短语以「当前 raw 串 + 该字符」为前缀时，
+    /// 视为短语续输继续累积，不开字面块；否则进入字面块路径。
+    private func shouldOpenLiteralSpan(for char: Character) -> Bool {
+        guard let phrases = customPhrases else { return true }
+        let prefix = rawSpansConcatenated() + String(char)
+        return !phrases.hasPhrasePrefix(prefix)
+    }
+
+    /// 把所有 `rawSpans` 按原始字符顺序拼接成单一字符串（含字面块大写、拼音小写、撇号等原样）。
+    /// 仅用于 customPhrase 前缀查询；拼音切分链路另有 `rawPinyin` 视图。
+    private func rawSpansConcatenated() -> String {
+        rawSpans.map { span -> String in
+            switch span {
+            case .pinyin(let s), .literal(let s): return s
+            }
+        }.joined()
+    }
+
     // MARK: - 退格
 
-    /// 处理退格逻辑
+    /// 处理退格逻辑。从 `rawSpans` 末尾片段逐字符回退；末尾片段为字面块时，
+    /// 按字符删除字面块内容，删空后整块消失，回到原退格路径继续删除前一片段。
     private func handleBackspace() {
         // 如果在 Tab 聚焦模式，退格退出聚焦
         if focusIndex != nil {
@@ -462,18 +585,20 @@ public class PinyinEngine {
             return
         }
 
-        if !rawPinyin.isEmpty {
-            // 删除拼音串末尾字符
-            rawPinyin = String(rawPinyin.dropLast())
-            if rawPinyin.isEmpty {
-                // 拼音全部删完，移除所有可编辑项
-                composingItems.removeAll { $0.isEditable }
+        if !rawSpans.isEmpty {
+            let last = rawSpans.removeLast()
+            if let trimmed = last.droppingLast() {
+                rawSpans.append(trimmed)
+            }
+            if rawSpans.isEmpty {
+                // 输入串全部删完，移除所有由 rawSpans 派生的项（可编辑拼音段与字面块），保留已确认 .text
+                composingItems.removeAll { $0.isEditable || $0.isLiteral }
                 candidates = []
             } else {
                 rebuildFromRawPinyin()
             }
         } else if !composingItems.isEmpty {
-            // 没有活跃拼音，删除最后一个已确定的文字
+            // 没有活跃输入，删除最后一个已确定的文字
             let last = composingItems.removeLast()
             if case .text(let s) = last, s.count > 1 {
                 composingItems.append(.text(String(s.dropLast())))
@@ -527,7 +652,9 @@ public class PinyinEngine {
         // 自定义短语续输模式：当 rawPinyin 中含有 0（作为短语名标识）且追加当前
         // 数字键后能够匹配到已注册短语时，将数字作为短语名的一部分（如 sz0 + 1
         // → sz01，用于输入带圈数字）；否则按常规选词逻辑处理。
-        if rawPinyin.contains("0") {
+        // 混输态（含字面块）下短语续输不参与，避免把数字续到字面块的拼音段后
+        // 反而抹掉已聚合的字面块。
+        if rawPinyin.contains("0") && !rawSpans.contains(where: { $0.isLiteral }) {
             // 短语名大小写敏感（xl0 与 XL0 是两个独立短语），不做 lowercase 归一
             let extended = rawPinyin + String(index)
             if customPhrases?.hasPhrase(extended) == true {
@@ -565,6 +692,8 @@ public class PinyinEngine {
     /// 处理以词定字
     private func handleBracket(pickLast: Bool) -> String? {
         guard activeCandidateIndex < candidates.count else { return nil }
+        // 混输态下候选是整句合成（含字面块原文），以词定字语义不再对应单一拼音段，直接 no-op
+        if rawSpans.contains(where: { $0.isLiteral }) { return nil }
         let active = candidates[activeCandidateIndex]
         guard let char = pickCharacter(from: active, pickLast: pickLast) else { return nil }
 
@@ -598,6 +727,8 @@ public class PinyinEngine {
 
     /// 处理 Tab 键：在可编辑段之间移动焦点
     private func handleTab(backward: Bool) {
+        // 混输态下候选是整句合成，Tab 段聚焦无明确语义，直接 no-op
+        if rawSpans.contains(where: { $0.isLiteral }) { return }
         let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
         guard !editableIndices.isEmpty else { return }
 
@@ -679,11 +810,26 @@ public class PinyinEngine {
 
     // MARK: - 自动切分与重建
 
-    /// 根据 rawPinyin 重建可编辑的 composingItems
+    /// 根据 rawSpans 重建可编辑的 composingItems。
+    /// - 纯拼音输入：与历史路径完全一致（基于 `rawPinyin` 切分 + 候选生成）。
+    /// - 含字面块的混输输入：按片段顺序对每个拼音段单独 compose 得 chunks，
+    ///   字面块作为 `.literal` 直接嵌入，候选合成为单条整句方案。
     private func rebuildFromRawPinyin() {
-        // 保留前面已确定的 .text 项
-        let confirmedPrefix = composingItems.filter { !$0.isEditable }
+        // 保留前面已确定的 .text 项；移除所有 rawSpans 派生的项
+        let confirmedPrefix = composingItems.filter { !$0.isEditable && !$0.isLiteral }
         composingItems = confirmedPrefix
+
+        guard !rawSpans.isEmpty else {
+            candidates = []
+            return
+        }
+
+        // 混输路径：含任一字面块时，走简化的整句合成流程，
+        // 不与首段补充候选 / 部分方案 / 固顶字等高级路径耦合。
+        if rawSpans.contains(where: { $0.isLiteral }) {
+            rebuildMixedComposition()
+            return
+        }
 
         guard !rawPinyin.isEmpty else {
             candidates = []
@@ -952,6 +1098,78 @@ public class PinyinEngine {
         }
     }
 
+    /// 混输重建：按 rawSpans 顺序对各拼音段单独 compose，字面块原样嵌入。
+    /// 候选区只产出一条整句合成方案；其它高级候选（首段补充、固顶、部分方案）
+    /// 在混输态下一律不参与，与 macOS 系统拼音的混输行为一致。
+    private func rebuildMixedComposition() {
+        let store = (currentMode == .pinyin) ? zhStore : jaStore
+
+        // 段级合成结果：每段对应展示串（pinyin chunks 切分原始字符）与提交文本（中文或字面块原文）。
+        struct SpanRender {
+            let items: [ComposingItem]
+            let commitText: String
+            let kind: Kind
+            enum Kind { case pinyin, literal }
+        }
+
+        var renders: [SpanRender] = []
+        for span in rawSpans {
+            switch span {
+            case .literal(let s):
+                renders.append(
+                    SpanRender(items: [.literal(s)], commitText: s, kind: .literal))
+            case .pinyin(let raw):
+                let cleaned = raw.lowercased().replacingOccurrences(of: "'", with: "")
+                let normalized = Self.normalizePinyin(cleaned)
+                let convResult = store.flatMap {
+                    Conversion.compose(
+                        normalized, store: $0, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
+                }
+
+                var pinyinItems: [ComposingItem] = []
+                if let conv = convResult, !conv.chunks.isEmpty {
+                    var offset = raw.startIndex
+                    for chunk in conv.chunks {
+                        while offset < raw.endIndex && raw[offset] == "'" {
+                            offset = raw.index(after: offset)
+                        }
+                        let end = raw.index(offset, offsetBy: chunk.count)
+                        pinyinItems.append(.pinyin(String(raw[offset..<end])))
+                        offset = end
+                    }
+                    if offset < raw.endIndex {
+                        pinyinItems.append(.pinyin(String(raw[offset...])))
+                    }
+                } else {
+                    // compose 失败 fallback：整段作为一个拼音项
+                    pinyinItems.append(.pinyin(raw))
+                }
+
+                let commitText = convResult?.text ?? cleaned
+                renders.append(
+                    SpanRender(items: pinyinItems, commitText: commitText, kind: .pinyin))
+            }
+        }
+
+        // 1. composingItems：按 SpanRender 顺序展开
+        for render in renders {
+            composingItems.append(contentsOf: render.items)
+        }
+
+        // 2. 整句候选：拼接各段 commit 文本，相邻段类型不同处补一个空格（中英边界）
+        var sentence = ""
+        for (idx, render) in renders.enumerated() {
+            if idx > 0 {
+                let prev = renders[idx - 1]
+                if prev.kind != render.kind {
+                    sentence += " "
+                }
+            }
+            sentence += render.commitText
+        }
+        candidates = sentence.isEmpty ? [] : [sentence]
+    }
+
     /// 为 Tab 聚焦段更新候选词
     private func updateCandidatesForFocus() {
         guard let idx = focusIndex, idx < composingItems.count else {
@@ -996,12 +1214,13 @@ public class PinyinEngine {
 
     // MARK: - 确认与提交辅助
 
-    /// 将整个拼音串替换为一个确定的文本（正常模式下选词/以词定字）
+    /// 将整个输入串替换为一个确定的文本（正常模式下选词/以词定字）。
+    /// 混输态下候选已是整句合成结果（含字面块原文），同样以单一 .text 替换所有派生项。
     private func finalizeAllPinyin(with text: String) {
-        // 移除所有可编辑项
-        composingItems.removeAll { $0.isEditable }
+        // 移除所有由 rawSpans 派生的项（可编辑拼音段与字面块）
+        composingItems.removeAll { $0.isEditable || $0.isLiteral }
         composingItems.append(.text(text))
-        rawPinyin = ""
+        rawSpans = []
         focusIndex = nil
         candidates = []
     }
@@ -1062,22 +1281,43 @@ public class PinyinEngine {
         rawPinyin = composingItems.compactMap { $0.sourcePinyin }.joined()
     }
 
-    /// 获取用于 Enter 提交的原文（拼音原文 + 已确定文本）
+    /// 获取用于 Enter 提交的原文（拼音原文 + 已确定文本 + 字面块原样）。
+    /// 中英边界（拼音/预览段 ↔ 字面块）补一个空格，与候选区呈现一致。
     private func rawContentForCommit() -> String {
-        composingItems.map {
-            switch $0 {
-            case .text(let s): return s
-            case .pinyin(let s): return s
-            case .provisional(let pinyin, _): return pinyin
+        var result = ""
+        var prevKind: Int? = nil  // 0=text, 1=pinyin/provisional, 2=literal
+        for item in composingItems {
+            let kind: Int
+            let text: String
+            switch item {
+            case .text(let s):
+                kind = 0
+                text = s
+            case .pinyin(let s):
+                kind = 1
+                text = s
+            case .provisional(let pinyin, _):
+                kind = 1
+                text = pinyin
+            case .literal(let s):
+                kind = 2
+                text = s
             }
-        }.joined()
+            if let prev = prevKind, (prev == 2) != (kind == 2), prev != 0, kind != 0 {
+                // 字面块 ↔ 拼音/预览 边界补空格；与已确认 .text 邻接时不补（.text 自身不参与混输）
+                result += " "
+            }
+            result += text
+            prevKind = kind
+        }
+        return result
     }
 
     /// 重置所有状态：包括清空缓冲区和自动回退临时模式
     private func resetAll() {
         composingItems = []
         candidates = []
-        rawPinyin = ""
+        rawSpans = []
         focusIndex = nil
         if currentMode == .transient { currentMode = .pinyin }
     }
@@ -1190,6 +1430,8 @@ public class PinyinEngine {
         guard currentMode == .pinyin else { return nil }
         guard !composingItems.isEmpty else { return nil }
         guard composingItems.allSatisfy({ $0.isEditable }) else { return nil }
+        // 含字面块的混输态不支持 pin：候选是整句合成，与单一拼音键无对应关系
+        guard !rawSpans.contains(where: { $0.isLiteral }) else { return nil }
         guard focusIndex == nil else { return nil }
         guard index >= 0 && index < candidates.count else { return nil }
         let cleanPinyin = Self.normalizePinyin(
