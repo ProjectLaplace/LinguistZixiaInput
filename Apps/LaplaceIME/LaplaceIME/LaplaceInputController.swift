@@ -24,7 +24,7 @@ class LaplaceInputController: IMKInputController {
     private var shiftPressedAlone = false
     /// Shift 按下的时间戳（用于过滤组合键长按）
     /// Workaround: WezTerm 不会将 Shift+Enter 等组合键的 keyDown 转发给 IMK，
-    /// 导致 shiftPressedAlone 无法被清除。用时间窗口作为 fallback，比修 WezTerm 容易。
+    /// 导致 shiftPressedAlone 无法被清除。用时间窗口作为 fallback，较修复 WezTerm 简便。
     private var shiftDownTime: TimeInterval = 0
     /// Shift 单击的最大时长（秒），超过视为组合键长按
     private static let shiftMaxDuration: TimeInterval = 0.3
@@ -186,7 +186,7 @@ class LaplaceInputController: IMKInputController {
         }
 
         // ⌘⇧[ / ⌘⇧]: 循环切换 active（[ 反向、] 正向）。
-        // 跟 macOS 用 ⇧⌘[ ⇧⌘] 在 tab/page 间切换的习惯一致，且手不离开 bracket 区。
+        // 与 macOS 用 ⇧⌘[ ⇧⌘] 在 tab/page 间切换的习惯一致，且手不离开 bracket 区。
         // keyCode 33=[, keyCode 30=]
         if modifiers == [.command, .shift] && (event.keyCode == 33 || event.keyCode == 30)
             && !currentState.candidates.isEmpty
@@ -436,24 +436,20 @@ class LaplaceInputController: IMKInputController {
         let items = currentState.items
 
         for (index, item) in items.enumerated() {
-            // 相邻两项之间插入空格 iff 两侧都不是已确认 .text。
-            // 拼音/预览/字面块互相之间都加空格作为视觉分隔；
-            // 已确认 .text 与任何项相邻时不加空格（中文衔接由 commit 时的内容决定）。
-            if index > 0 {
-                let prevIsText: Bool = {
-                    if case .text = items[index - 1] { return true } else { return false }
-                }()
-                let curIsText: Bool = {
-                    if case .text = item { return true } else { return false }
-                }()
-                if !prevIsText && !curIsText {
-                    result.append(
-                        NSAttributedString(
-                            string: " ",
-                            attributes: [
-                                .underlineStyle: NSUnderlineStyle.single.rawValue
-                            ]))
-                }
+            // 相邻两项之间是否插入空格的判定下放给引擎层：
+            // 拼音 / 预览 ↔ 字面块边界恒补空格；已确认 .text 与字面块、或两个 .text
+            // 相邻时按内容首末字符判定中↔拉边界；其余不补。详见
+            // `ComposingItem.needsSeparatorSpace`。
+            if index > 0,
+                ComposingItem.needsSeparatorSpace(
+                    before: items[index - 1], after: item)
+            {
+                result.append(
+                    NSAttributedString(
+                        string: " ",
+                        attributes: [
+                            .underlineStyle: NSUnderlineStyle.single.rawValue
+                        ]))
             }
 
             let text: String

@@ -793,7 +793,7 @@ final class PinyinEngineTests: XCTestCase {
 
     // MARK: - Garbage-tail fallback (孤立韵母回退)
 
-    // 用户敲了既不是音节也不是声母的「垃圾尾巴」（如 wuwuu 末尾的 u），
+    // 用户输入了既不是音节也不是声母的「垃圾尾巴」（如 wuwuu 末尾的 u），
     // Conversion 与前缀匹配都失败时，引擎应基于前面合法音节组词，
     // 把候选 + remainder 原文拼接成「中文+残留字符」，让按空格/数字键能选。
 
@@ -926,5 +926,261 @@ final class PinyinEngineTests: XCTestCase {
         let state = type("A")
         XCTAssertEqual(state.items, [.literal("A")])
         XCTAssertEqual(state.candidates, ["A"])
+    }
+
+    // MARK: - Mixed Buffer Candidate Structure (混输候选区结构)
+    //
+    // 候选区结构对齐纯拼音模式：pos 1 为整句、pos 2+ 为首拼音段备选。
+    // fixture 词典中 xianzai → 「现在」「西安」，pengyou → 「朋友」。
+    // 测试 expected 候选基于 fixture 实际产出，不是产品级词典预期。
+
+    func testMixedBufferOffersFirstSpanAlternativesAfterSentence() {
+        // 拼音 + 字面块 + 拼音：候选首条整句，之后是首拼音段「xianzai」的备选
+        let state = type("xianzaiAPIpengyou")
+        XCTAssertEqual(state.candidates.first, "现在 API 朋友")
+        XCTAssertEqual(
+            Array(state.candidates.dropFirst()), ["现在", "西安"],
+            "pos 2+ 应为首拼音段 xianzai 的备选词序列")
+    }
+
+    func testMixedBufferSelectingFirstSpanConfirmsIntoComposingText() {
+        // 选 pos 2「现在」→「现在」确认进预编辑文本（marked text），不直接写出到宿主文档；
+        // buffer 剩 APIpengyou 重建候选，整句方案「API 朋友」浮顶。
+        type("xianzaiAPIpengyou")
+        let committed = number(2)
+        XCTAssertNil(
+            committed.committedText,
+            "首段备选选中后写入预编辑文本，不立即提交到宿主文档")
+        XCTAssertTrue(
+            committed.items.contains(where: {
+                if case .text(let s) = $0 { return s == "现在" }
+                return false
+            }),
+            "预编辑文本应包含已确认的「现在」.text 项")
+        // 余下 spans 重新组词：API + pengyou → 整句「API 朋友」
+        XCTAssertEqual(committed.candidates.first, "API 朋友")
+        XCTAssertTrue(
+            committed.items.contains(where: { $0.isLiteral && $0.content == "API" }),
+            "余下 buffer 应保留字面块 API")
+    }
+
+    func testMixedBufferLiteralPrefixOffersLiteralAsSecondCandidate() {
+        // 字面块前置：APIxianzaipengyou，rawSpans = [.literal("API"), .pinyin("xianzaipengyou")]。
+        // rawSpans 首个 chunk 为 .literal，pos 2 = 字面块本身「API」（仅一项，因为字面块没有备选）。
+        // 选 pos 2「API」仅截除字面块并以 .text 推进预编辑文本，余下 spans 重建组词。
+        let state = type("APIxianzaipengyou")
+        XCTAssertEqual(state.candidates.first, "API 现在朋友")
+        XCTAssertEqual(
+            Array(state.candidates.dropFirst()), ["API"],
+            "首 chunk 为字面块时 pos 2 = 字面块本身")
+        let committed = number(2)
+        XCTAssertNil(committed.committedText, "选中字面块后写入预编辑文本，不立即提交")
+        XCTAssertTrue(
+            committed.items.contains(where: {
+                if case .text(let s) = $0 { return s == "API" }
+                return false
+            }),
+            "字面块作为独立 .text 推进预编辑文本")
+        // 余下 spans = [.pinyin("xianzaipengyou")]，候选区切回纯拼音组词
+        XCTAssertEqual(committed.candidates.first, "现在朋友")
+        // 后续按空格 / Enter 整体提交时跨「API↔现在朋友」边界保留空格
+        let final = space()
+        XCTAssertEqual(final.committedText, "API 现在朋友")
+    }
+
+    func testMixedBufferLiteralPrefixSingleCharFirstSpanOffersLiteralAsSecondCandidate() {
+        // 字面块前置 + 单字首段：APIxianzai，rawSpans = [.literal("API"), .pinyin("xianzai")]。
+        // 首 chunk 为 .literal，pos 2 = 「API」（仅字面块本身）。
+        // 选 pos 2 仅推进字面块，buffer 余下 [.pinyin("xianzai")]。
+        let state = type("APIxianzai")
+        XCTAssertEqual(state.candidates.first, "API 现在")
+        XCTAssertEqual(Array(state.candidates.dropFirst()), ["API"])
+        let committed = number(2)
+        XCTAssertNil(committed.committedText, "选中字面块后写入预编辑文本，不立即提交")
+        XCTAssertTrue(
+            committed.items.contains(where: {
+                if case .text(let s) = $0 { return s == "API" }
+                return false
+            }),
+            "字面块作为独立 .text 推进预编辑文本")
+        // 余下 [.pinyin("xianzai")]：候选区与纯拼音模式同构
+        XCTAssertEqual(committed.candidates.first, "现在")
+    }
+
+    func testMixedBufferPinyinLiteralPinyinKeepsTrailingSpansAndPreservesBoundarySpace() {
+        // xianzaiAPIhenzhongyao：首段 xianzai 备选「现在」「西安」。
+        // 选 pos 2「现在」→「现在」进预编辑文本，余下 spans = [.literal("API"), .pinyin("henzhongyao")]
+        // 重建为整句候选「API + henzhongyao 的中文译文」。
+        type("xianzaiAPIhenzhongyao")
+        let committed = number(2)
+        XCTAssertNil(committed.committedText, "首段备选选中后写入预编辑文本，不立即提交")
+        XCTAssertTrue(
+            committed.items.contains(where: {
+                if case .text(let s) = $0 { return s == "现在" }
+                return false
+            }),
+            "预编辑文本含已确认的「现在」.text 项")
+        XCTAssertTrue(
+            committed.items.contains(where: { $0.isLiteral && $0.content == "API" }),
+            "余下 buffer 保留字面块 API")
+        XCTAssertTrue(
+            committed.items.contains(where: {
+                if case .pinyin(let s) = $0 { return s == "henzhongyao" }
+                return false
+            }) || committed.items.contains(where: { $0.sourcePinyin?.contains("h") == true }),
+            "余下 buffer 包含 henzhongyao 拼音段")
+    }
+
+    func testMixedBufferTrailingLiteralConfirmsFirstSpanIntoComposingText() {
+        // 拼音 + 字面块尾随：xianzaiAPI，选 pos 2「现在」→「现在」进预编辑文本，余下 API
+        let state = type("xianzaiAPI")
+        XCTAssertEqual(state.candidates.first, "现在 API")
+        XCTAssertEqual(Array(state.candidates.dropFirst()), ["现在", "西安"])
+        let committed = number(2)
+        XCTAssertNil(committed.committedText, "首段备选选中后写入预编辑文本，不立即提交")
+        XCTAssertTrue(
+            committed.items.contains(where: {
+                if case .text(let s) = $0 { return s == "现在" }
+                return false
+            }))
+        XCTAssertEqual(committed.candidates, ["API"])
+    }
+
+    func testPureLiteralBufferProducesSingleCandidate() {
+        // 纯字面块 buffer 没有拼音段，候选只有整句一条
+        let state = type("API")
+        XCTAssertEqual(state.candidates, ["API"])
+    }
+
+    func testPurePinyinBufferKeepsExistingCandidateStructure() {
+        // 回归：纯拼音 buffer 候选结构不受混输改造影响。
+        // xianzai 的候选「现在」（整串）+「西安」（首段「xian」补充候选，登记为部分方案）。
+        let state = type("xianzai")
+        XCTAssertEqual(state.candidates.first, "现在")
+        XCTAssertTrue(state.candidates.contains("西安"))
+        // 选 pos 1「现在」走整串方案直接提交
+        let committed = number(1)
+        XCTAssertEqual(committed.committedText, "现在")
+    }
+
+    func testPurePinyinBufferPartialFirstSegmentRouteIntact() {
+        // 回归：纯拼音模式下首段补充候选「西安」仍走部分方案路径（confirmFirstSegment），
+        // 不应误入混输 mixedFirstSpanCandidates 路由。
+        type("xianzai")
+        let committed = number(2)
+        XCTAssertNil(committed.committedText, "部分方案不直接提交，buffer 留下首段译文 + 余下拼音")
+        XCTAssertEqual(committed.items.first?.content, "西安")
+    }
+
+    // MARK: - Mixed Buffer End-to-End Commit (混输逐段选完到最终提交)
+    //
+    // 端到端覆盖「按 pos 2 / 空格逐段确认 + 最终整体提交」流程，重点验证最终 commit
+    // 字符串里跨「中文 ↔ 拉丁字面块」边界的空格保留正确（commit 1 修复 regression）。
+
+    func testMixedBufferStepwiseConfirmThenFinalCommitPreservesBoundarySpaces() {
+        // xianzaiAPIpengyou：先选 pos 2「现在」确认进预编辑文本；候选区基于剩余
+        // 「API + pengyou」整句方案 =「API 朋友」。再按空格整体提交，期望最终 commit
+        // 为「现在 API 朋友」，跨「现在↔API」与「API↔朋友」两个中↔拉边界都保留空格。
+        type("xianzaiAPIpengyou")
+        let confirmed = number(2)
+        XCTAssertNil(confirmed.committedText)
+        XCTAssertEqual(confirmed.candidates.first, "API 朋友")
+        let final = space()
+        XCTAssertEqual(final.committedText, "现在 API 朋友")
+    }
+
+    func testMixedBufferThreeStepStepwiseConfirmation() {
+        // 端到端覆盖 spec 完整流程示例「选现在 → 选 API → 选朋友」三步走：
+        // 步骤 1：输入 xianzaiAPIpengyou，候选 = [现在 API 朋友, 现在, 西安]
+        // 步骤 2：按 2 选「现在」→ 余下 spans = [.literal(API), .pinyin(pengyou)]，
+        //         首 chunk 切换为 .literal，候选 = [API 朋友, API]
+        // 步骤 3：按 2 选「API」→ 余下 spans = [.pinyin(pengyou)]，候选 = [朋友, ...]
+        // 步骤 4：按 2 选「朋友」→ rawSpans 耗尽，候选为空
+        // 步骤 5：空格整体提交 →「现在 API 朋友」，跨两次中↔拉边界都保留空格
+        let s1 = type("xianzaiAPIpengyou")
+        XCTAssertEqual(s1.candidates.first, "现在 API 朋友")
+        XCTAssertEqual(Array(s1.candidates.dropFirst()), ["现在", "西安"])
+
+        let s2 = number(2)
+        XCTAssertNil(s2.committedText, "选「现在」后写入预编辑文本，不立即提交")
+        XCTAssertEqual(s2.candidates.first, "API 朋友")
+        XCTAssertEqual(
+            Array(s2.candidates.dropFirst()), ["API"],
+            "余下首 chunk 为 .literal，pos 2 应为字面块「API」本身")
+
+        let s3 = number(2)
+        XCTAssertNil(s3.committedText, "选「API」后字面块作为离散步骤推进，仍不提交")
+        XCTAssertEqual(s3.candidates.first, "朋友", "余下 spans = [pengyou]，候选切回纯拼音")
+        // 此时预编辑文本累积：[.text(现在), .text(API), .pinyin(pengyou)]
+        let texts = s3.items.compactMap { item -> String? in
+            if case .text(let s) = item { return s }
+            return nil
+        }
+        XCTAssertEqual(
+            texts, ["现在", "API"],
+            "预编辑文本应保留两个独立的 .text 项，分别承载已确认的「现在」与「API」")
+
+        let s4 = number(1)
+        XCTAssertEqual(
+            s4.committedText, "现在 API 朋友",
+            "选完最后一段后整体提交，跨两个中↔拉边界都保留空格")
+    }
+
+    func testMixedBufferStepwiseConfirmTrailingLiteralPreservesBoundarySpace() {
+        // xianzaiAPI：选 pos 2「现在」确认进预编辑文本；候选 = ["API"]。空格提交
+        // 期望最终 commit「现在 API」，保留中↔拉边界空格。
+        type("xianzaiAPI")
+        let confirmed = number(2)
+        XCTAssertNil(confirmed.committedText)
+        XCTAssertEqual(confirmed.candidates, ["API"])
+        let final = space()
+        XCTAssertEqual(final.committedText, "现在 API")
+    }
+
+    // MARK: - ComposingItem Boundary Space Rule
+
+    func testComposingItemBoundaryHanLatinAcrossText() {
+        // 跨「中文 ↔ 拉丁」边界的两个 .text 项相邻：补空格
+        let prev = ComposingItem.text("现在")
+        let next = ComposingItem.text("API")
+        XCTAssertTrue(ComposingItem.needsSeparatorSpace(before: prev, after: next))
+        XCTAssertTrue(ComposingItem.needsSeparatorSpace(before: next, after: prev))
+    }
+
+    func testComposingItemBoundaryHanHanNoSpace() {
+        // 两个中文 .text 相邻：不补空格
+        let prev = ComposingItem.text("你好")
+        let next = ComposingItem.text("世界")
+        XCTAssertFalse(ComposingItem.needsSeparatorSpace(before: prev, after: next))
+    }
+
+    func testComposingItemBoundaryTextLiteralSpaces() {
+        // .text 与 .literal 跨中↔拉边界：补空格
+        XCTAssertTrue(
+            ComposingItem.needsSeparatorSpace(
+                before: .text("现在"), after: .literal("API")))
+        XCTAssertTrue(
+            ComposingItem.needsSeparatorSpace(
+                before: .literal("API"), after: .text("现在")))
+    }
+
+    func testComposingItemBoundaryPinyinLiteralSpaces() {
+        // 拼音 ↔ 字面块：恒补空格（与产品要求的 `xian'zai API` 呈现一致）
+        XCTAssertTrue(
+            ComposingItem.needsSeparatorSpace(
+                before: .pinyin("xianzai"), after: .literal("API")))
+        XCTAssertTrue(
+            ComposingItem.needsSeparatorSpace(
+                before: .literal("API"), after: .pinyin("pengyou")))
+    }
+
+    func testComposingItemBoundaryTextPinyinNoSpace() {
+        // .text 与 .pinyin 相邻：不补空格（拼音最终归宿为中文，保留现状）
+        XCTAssertFalse(
+            ComposingItem.needsSeparatorSpace(
+                before: .text("西安"), after: .pinyin("pengyou")))
+        XCTAssertFalse(
+            ComposingItem.needsSeparatorSpace(
+                before: .pinyin("xianzai"), after: .text("朋友")))
     }
 }

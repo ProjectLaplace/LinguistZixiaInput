@@ -47,6 +47,56 @@ public enum ComposingItem: Equatable {
         case .provisional(_, let candidate): return candidate
         }
     }
+
+    /// 判定相邻两项之间是否应当插入一个空格分隔（用于 marked text 渲染与 commit 字符串拼接）。
+    ///
+    /// 规则按相邻项的语义类别判定：
+    /// - 拼音段 / 预览段 ↔ 字面块：始终补空格（混输边界，与产品要求的 `xian'zai API` 呈现一致）。
+    /// - 已确认 .text ↔ 拼音段 / 预览段：不补空格（拼音此时仍处可编辑状态，最终归宿为中文）。
+    /// - 已确认 .text ↔ 字面块、或两个已确认 .text 相邻：按内容首末字符判定中↔拉边界，
+    ///   出现「中文 ↔ 拉丁字母 / 数字」边界时补空格；同向拼接时不补。
+    /// - 同类拼音段 / 同类预览段 / 字面块两两相邻：实际不会发生（聚合规则保证），不补。
+    public static func needsSeparatorSpace(before prev: ComposingItem, after next: ComposingItem)
+        -> Bool
+    {
+        let prevEditable = prev.isEditable
+        let nextEditable = next.isEditable
+        let prevLiteral = prev.isLiteral
+        let nextLiteral = next.isLiteral
+
+        // 拼音 / 预览 ↔ 字面块：恒补空格
+        if (prevEditable && nextLiteral) || (prevLiteral && nextEditable) {
+            return true
+        }
+
+        // 与拼音 / 预览相邻的 .text：不补空格（保留现状）
+        if prevEditable || nextEditable {
+            return false
+        }
+
+        // 此时两侧均为 .text 或 .literal，按内容首末字符判中↔拉边界
+        guard let lastCh = prev.content.last, let firstCh = next.content.first else {
+            return false
+        }
+        let lastLatin = isLatinBoundaryCharacter(lastCh)
+        let firstLatin = isLatinBoundaryCharacter(firstCh)
+        let lastHan = isHanBoundaryCharacter(lastCh)
+        let firstHan = isHanBoundaryCharacter(firstCh)
+        return (lastLatin && firstHan) || (lastHan && firstLatin)
+    }
+
+    /// 是否为参与中↔拉边界判定的拉丁字符（ASCII 字母或数字）。
+    private static func isLatinBoundaryCharacter(_ ch: Character) -> Bool {
+        guard ch.isASCII else { return false }
+        return ch.isLetter || ch.isNumber
+    }
+
+    /// 是否为参与中↔拉边界判定的中文字符（CJK 汉字范围）。
+    private static func isHanBoundaryCharacter(_ ch: Character) -> Bool {
+        ch.unicodeScalars.contains { scalar in
+            scalar.properties.isIdeographic
+        }
+    }
 }
 
 /// 输入序列中的原始片段：拼音段（小写字母 / 撇号）或字面块（连续大写字母聚合）。
@@ -163,6 +213,8 @@ public class PinyinEngine {
         didSet {
             activeCandidateIndex = 0
             partialConsumedPinyin = [:]
+            mixedFirstSpanCandidates = []
+            mixedFirstLiteralCandidates = []
         }
     }
     private var currentMode: InputMode = .pinyin
@@ -203,6 +255,19 @@ public class PinyinEngine {
     /// 未登记的候选默认覆盖整串拼音，被选中时进入 `finalizeAllPinyin`；
     /// 已登记的候选被选中时进入 `confirmFirstSegment`，按记录的拼音段截除 rawPinyin 后继续组词。
     private var partialConsumedPinyin: [String: String] = [:]
+
+    /// 混输态首拼音段备选集合：登记 `rebuildMixedComposition` 为首拼音段产出的候选文本。
+    /// 选中时走 `confirmMixedFirstSpanIntoComposingText`，把首拼音段译文确认进
+    /// 预编辑文本（marked text）继续组词，不直接写出到宿主文档；与纯拼音模式
+    /// 选 pos 2+ 走 `confirmFirstSegment` 的语义保持一致。pos 1 整句候选不登记，
+    /// 仍走 `finalizeAllPinyin` 整串提交语义。
+    private var mixedFirstSpanCandidates: Set<String> = []
+
+    /// 混输态首字面块候选集合：当 `rawSpans` 第一个 chunk 为 `.literal` 时，
+    /// `rebuildMixedComposition` 把字面块本身作为 pos 2 候选登记于此。
+    /// 选中时走 `confirmMixedFirstLiteralIntoComposingText`，将字面块作为一个
+    /// 离散步骤推进预编辑文本，余下 spans 重建组词；与首拼音段路径对仗。
+    private var mixedFirstLiteralCandidates: Set<String> = []
 
     // 全角标点状态
     private var doubleQuoteOpen = false  // " 的开闭状态
@@ -438,7 +503,7 @@ public class PinyinEngine {
             // 缓冲区里只有拼音时维持原有「全部丢弃」语义。
             if composingItems.contains(where: { !$0.isEditable }) {
                 let confirmed = composingItems.filter { !$0.isEditable }
-                committedText = confirmed.map { $0.content }.joined()
+                committedText = joinedCommitText(confirmed)
             }
             resetAll()
 
@@ -632,13 +697,13 @@ public class PinyinEngine {
             } else {
                 // 正常模式：用候选替换整个拼音串，然后提交全部
                 finalizeAllPinyin(with: active)
-                let result = composingItems.map { $0.content }.joined()
+                let result = joinedCommitText(composingItems)
                 resetAll()
                 return result
             }
         } else if !composingItems.isEmpty {
             // 无候选时（包括 Tab 模式全部确认后），提交缓冲区内容
-            let result = composingItems.map { $0.content }.joined()
+            let result = joinedCommitText(composingItems)
             resetAll()
             return result
         }
@@ -676,14 +741,82 @@ public class PinyinEngine {
         // 部分方案的候选登记在 partialConsumedPinyin 中（包括 4b 注入的首词、首段补充候选等）；
         // 未登记者视为整串方案，覆盖全部 cleanPinyin。
         let candidateText = candidates[actualIndex]
+        // 混输态首字面块方案：当 `rawSpans` 首个 chunk 为 `.literal` 时，pos 2 是
+        // 字面块本身。选中时仅截除该字面块并以 `.text` 推进预编辑文本，余下 spans
+        // 重建组词；与首拼音段路径对仗，让用户像逐段选拼音那样把字面块作为独立
+        // 步骤推进。
+        if mixedFirstLiteralCandidates.contains(candidateText) {
+            confirmMixedFirstLiteralIntoComposingText(with: candidateText)
+            return nil
+        }
+        // 混输态首拼音段方案：登记在 `mixedFirstSpanCandidates`，把首段 + 前置字面块
+        // 确认进预编辑文本（marked text）继续组词，不直接写出到宿主文档。
+        if mixedFirstSpanCandidates.contains(candidateText) {
+            confirmMixedFirstSpanIntoComposingText(with: candidateText)
+            return nil
+        }
         if let consumed = partialConsumedPinyin[candidateText] {
             confirmFirstSegment(with: candidateText, consumedPinyin: consumed)
             return nil
         } else {
             finalizeAllPinyin(with: candidateText)
-            let result = composingItems.map { $0.content }.joined()
+            let result = joinedCommitText(composingItems)
             resetAll()
             return result
+        }
+    }
+
+    /// 混输态选中首拼音段备选：把首段译文确认进预编辑文本（`composingItems`），
+    /// 继续基于剩余 spans 组词；不直接提交到宿主文档。与纯拼音模式选 pos 2+
+    /// 走 `confirmFirstSegment` 的语义保持一致 —— 用户视角下都是先在 marked text
+    /// 内累积已确认部分，待整体确认（空格 / 数字选 pos 1 / Enter）时再一并提交，
+    /// 从而保证最终 commit 字符串能够按完整边界规则（含中↔拉空格）整体处理。
+    ///
+    /// 调用约束：本函数仅在候选派发命中 `mixedFirstSpanCandidates` 时进入，而该
+    /// 集合仅在 `rawSpans.first == .pinyin` 时注册（参见 `rebuildMixedComposition`）。
+    /// 因此进入时 `rawSpans.first` 必为 `.pinyin`，可直接 `removeFirst()`；
+    /// 字面块前缀已由独立的 `confirmMixedFirstLiteralIntoComposingText` 路径处理。
+    private func confirmMixedFirstSpanIntoComposingText(with text: String) {
+        // 已确认前缀（前序 .text）保留；移除当前 rawSpans 派生的可编辑 / 字面块项
+        let confirmedPrefix = composingItems.filter { !$0.isEditable && !$0.isLiteral }
+        composingItems = confirmedPrefix
+        composingItems.append(.text(text))
+
+        rawSpans.removeFirst()
+        focusIndex = nil
+
+        if rawSpans.isEmpty {
+            candidates = []
+        } else {
+            rebuildFromRawPinyin()
+        }
+    }
+
+    /// 混输态选中首字面块：把字面块作为一个独立 chunk 推进预编辑文本
+    /// （`composingItems`），余下 spans 重建组词；与 `confirmMixedFirstSpanIntoComposingText`
+    /// 对仗。语义上让用户像选拼音候选那样把字面块作为离散步骤推进。
+    ///
+    /// 实现细节：以 `.text(literalContent)` 推入 composingItems，与前面已确认的
+    /// `.text` 之间的中↔拉边界空格由 `joinedCommitText` / `needsSeparatorSpace`
+    /// 在最终拼接时自动处理，无需在此手动注入。
+    private func confirmMixedFirstLiteralIntoComposingText(with text: String) {
+        guard let first = rawSpans.first, case .literal(let literal) = first,
+            literal == text
+        else { return }
+
+        // 已确认前缀（前序 .text）保留；移除当前 rawSpans 派生的可编辑 / 字面块项
+        let confirmedPrefix = composingItems.filter { !$0.isEditable && !$0.isLiteral }
+        composingItems = confirmedPrefix
+        composingItems.append(.text(literal))
+
+        // 截除已确认的首字面块，余下 spans 重建
+        rawSpans.removeFirst()
+        focusIndex = nil
+
+        if rawSpans.isEmpty {
+            candidates = []
+        } else {
+            rebuildFromRawPinyin()
         }
     }
 
@@ -718,7 +851,7 @@ public class PinyinEngine {
 
         // 直接提交：选中的字与已确认的 .text 项一并提交，未选中的部分丢弃。
         finalizeAllPinyin(with: char)
-        let result = composingItems.map { $0.content }.joined()
+        let result = joinedCommitText(composingItems)
         resetAll()
         return result
     }
@@ -786,9 +919,9 @@ public class PinyinEngine {
                 let safeIndex =
                     (0..<candidates.count).contains(activeCandidateIndex) ? activeCandidateIndex : 0
                 finalizeAllPinyin(with: candidates[safeIndex])
-                result = composingItems.map { $0.content }.joined()
+                result = joinedCommitText(composingItems)
             } else {
-                result = composingItems.map { $0.content }.joined()
+                result = joinedCommitText(composingItems)
             }
             resetAll()
             return result + fullWidth
@@ -1099,8 +1232,15 @@ public class PinyinEngine {
     }
 
     /// 混输重建：按 rawSpans 顺序对各拼音段单独 compose，字面块原样嵌入。
-    /// 候选区只产出一条整句合成方案；其它高级候选（首段补充、固顶、部分方案）
-    /// 在混输态下一律不参与，与 macOS 系统拼音的混输行为一致。
+    /// 候选区结构：pos 1 = 整句合成方案；pos 2+ 取决于 rawSpans 首个 chunk：
+    /// - 首 chunk 为 `.pinyin`：pos 2+ = 首拼音段的备选（多字词 + 单字），
+    ///   与纯拼音模式同构。备选登记于 `mixedFirstSpanCandidates`，选中时走
+    ///   `confirmMixedFirstSpanIntoComposingText`。
+    /// - 首 chunk 为 `.literal`：pos 2 = 字面块本身（仅一项，字面块没有备选）。
+    ///   登记于 `mixedFirstLiteralCandidates`，选中时走
+    ///   `confirmMixedFirstLiteralIntoComposingText` 把字面块作为离散步骤推进
+    ///   预编辑文本，与拼音段路径对仗。
+    /// 整句候选 pos 1 永远保留，作为「跳到底」的快捷选项。
     private func rebuildMixedComposition() {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
@@ -1167,7 +1307,83 @@ public class PinyinEngine {
             }
             sentence += render.commitText
         }
-        candidates = sentence.isEmpty ? [] : [sentence]
+
+        // 3. 首 chunk 备选：按首个 chunk 的类型分派为 pos 2+。
+        //    - 首 chunk 为 .pinyin：生成多字词 + 单字备选，登记到 `mixedFirstSpanCandidates`。
+        //    - 首 chunk 为 .literal：以字面块本身作为唯一备选，登记到 `mixedFirstLiteralCandidates`。
+        //    与整句候选去重；纯字面块 buffer（仅一段 .literal）下整句 = 字面块，
+        //    去重后 pos 2 自然合并入 pos 1，候选区只剩一条，避免视觉冗余。
+        var firstChunkCandidates: [String] = []
+        switch rawSpans.first {
+        case .pinyin(let raw):
+            firstChunkCandidates = generateFirstSpanCandidates(forRaw: raw, store: store)
+        case .literal(let s):
+            firstChunkCandidates = [s]
+        case .none:
+            break
+        }
+
+        var combined: [String] = sentence.isEmpty ? [] : [sentence]
+        let existing = Set(combined)
+        let firstChunkFiltered = firstChunkCandidates.filter { !existing.contains($0) }
+        combined.append(contentsOf: firstChunkFiltered)
+
+        candidates = combined
+        switch rawSpans.first {
+        case .pinyin:
+            mixedFirstSpanCandidates = Set(firstChunkFiltered)
+        case .literal:
+            mixedFirstLiteralCandidates = Set(firstChunkFiltered)
+        case .none:
+            break
+        }
+    }
+
+    /// 为单一拼音段（混输态首段）生成备选列表：精确匹配 + Conversion 整词 + 首音节单字。
+    /// 精简版本，与 `updateCandidatesWholeString` 中的同构逻辑对齐，但不耦合 partial 登记、
+    /// 用户词典、自定义短语、固顶字等纯拼音路径专属机制。
+    private func generateFirstSpanCandidates(forRaw raw: String, store: DictionaryStore?)
+        -> [String]
+    {
+        let cleaned = raw.lowercased().replacingOccurrences(of: "'", with: "")
+        let normalized = Self.normalizePinyin(cleaned)
+        guard !normalized.isEmpty else { return [] }
+
+        var result: [String] = []
+        var seen: Set<String> = []
+        let push: (String) -> Void = { text in
+            guard !seen.contains(text) else { return }
+            seen.insert(text)
+            result.append(text)
+        }
+
+        // 整串精确匹配
+        for word in store?.candidates(for: normalized) ?? [] {
+            push(word)
+        }
+
+        // Conversion 多音节整段
+        let (syllables, remainder) = PinyinSplitter.splitPartial(normalized)
+        if syllables.count > 1, remainder.isEmpty {
+            if let conv = store.flatMap({
+                Conversion.compose(
+                    normalized, store: $0, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
+            }) {
+                push(conv.text)
+            }
+        }
+
+        // 首音节单字 fallback：多音节时把第一音节的字典候选追加，方便用户回退选首字
+        if syllables.count > 1, remainder.isEmpty {
+            let firstSyl = Self.normalizePinyin(syllables[0])
+            if firstSyl != normalized {
+                for word in store?.candidates(for: firstSyl) ?? [] {
+                    push(word)
+                }
+            }
+        }
+
+        return result
     }
 
     /// 为 Tab 聚焦段更新候选词
@@ -1239,7 +1455,7 @@ public class PinyinEngine {
         // 如果没有更多可编辑段，自动提交
         let editableIndices = composingItems.indices.filter { composingItems[$0].isEditable }
         if editableIndices.isEmpty {
-            let result = composingItems.map { $0.content }.joined()
+            let result = joinedCommitText(composingItems)
             resetAll()
             return result
         } else {
@@ -1282,33 +1498,33 @@ public class PinyinEngine {
     }
 
     /// 获取用于 Enter 提交的原文（拼音原文 + 已确定文本 + 字面块原样）。
-    /// 中英边界（拼音/预览段 ↔ 字面块）补一个空格，与候选区呈现一致。
+    /// 边界空格规则统一走 `ComposingItem.needsSeparatorSpace`，与候选区呈现及
+    /// 整串提交字符串一致。
     private func rawContentForCommit() -> String {
+        joinedCommitText(composingItems)
+    }
+
+    /// 把一组 composingItems 拼接为最终 commit 字符串。
+    /// 边界空格依据 `ComposingItem.needsSeparatorSpace`：拼音 / 预览段与字面块
+    /// 相邻时必补；已确认 .text 与字面块、或两个 .text 相邻时按内容首末字符判定
+    /// 中↔拉边界；其余不补。
+    private func joinedCommitText(_ items: [ComposingItem]) -> String {
         var result = ""
-        var prevKind: Int? = nil  // 0=text, 1=pinyin/provisional, 2=literal
-        for item in composingItems {
-            let kind: Int
+        var previous: ComposingItem? = nil
+        for item in items {
             let text: String
             switch item {
-            case .text(let s):
-                kind = 0
-                text = s
-            case .pinyin(let s):
-                kind = 1
-                text = s
-            case .provisional(let pinyin, _):
-                kind = 1
-                text = pinyin
-            case .literal(let s):
-                kind = 2
-                text = s
+            case .text(let s), .pinyin(let s), .literal(let s): text = s
+            case .provisional(let pinyin, _): text = pinyin
             }
-            if let prev = prevKind, (prev == 2) != (kind == 2), prev != 0, kind != 0 {
-                // 字面块 ↔ 拼音/预览 边界补空格；与已确认 .text 邻接时不补（.text 自身不参与混输）
+            guard !text.isEmpty else { continue }
+            if let prev = previous,
+                ComposingItem.needsSeparatorSpace(before: prev, after: item)
+            {
                 result += " "
             }
             result += text
-            prevKind = kind
+            previous = item
         }
         return result
     }
