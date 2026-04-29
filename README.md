@@ -70,7 +70,7 @@ A deterministic pinyin input method for macOS, designed for muscle memory and fl
 
 **优势**：
 
-- 快速搭起完整的输入法链路，让设计精力集中在引擎与体验上。
+- 快速搭起完整的输入法骨架，让设计精力集中在引擎与体验上。
 - 系统层在多个 UI 决策上已经做得相当精细：候选栏宽度固定（视觉稳定性）、双字/多字词的候选数量平衡、与系统其他输入法风格一致。
 
 **取舍**：
@@ -84,7 +84,7 @@ A deterministic pinyin input method for macOS, designed for muscle memory and fl
 
 ## Roadmap
 
-下列是当前规划中较具体的开发方向，按时间感分为短中期与长期。具体可追踪条目见 GitHub issues。
+下列是当前规划中较具体的开发方向，按时间跨度分为短中期与长期。具体可追踪条目见 GitHub issues。
 
 ### 短中期
 
@@ -99,6 +99,31 @@ A deterministic pinyin input method for macOS, designed for muscle memory and fl
 - 简繁切换（[#4](https://github.com/ProjectLaplace/LinguistZixiaInput/issues/4)）
 - 自研候选区 UI（脱离 IMK 限制）
 - 引擎层 Rust 重写（跨平台分发的前提）
+
+## 安装
+
+### 推荐：Homebrew
+
+```bash
+brew tap ProjectLaplace/tap
+brew install --cask linguist-zixia-input
+```
+
+安装完成后，打开「系统设置 → 键盘 → 文字输入 → 输入来源」，点击 `+` 添加「紫霞输入法」（系统设置中可能以英文名 `Linguist Zixia Input` 显示）。
+
+### 手动安装
+
+1. 从 [GitHub Releases](https://github.com/ProjectLaplace/LinguistZixiaInput/releases) 下载最新版本的 ZIP 文件并解压。
+
+2. 在 Finder 中按 ⇧⌘G 打开「前往文件夹」对话框，粘贴 `~/Library/Input Methods` 并按 Enter 进入目标目录，然后将解压后的 `Linguist Zixia Input.app` 拖入该目录。
+
+3. 移除系统隔离属性（从网络下载的文件必须执行此步骤，否则系统拒绝加载输入法）：
+
+   ```bash
+   xattr -dr com.apple.quarantine ~/Library/Input\ Methods/Linguist\ Zixia\ Input.app
+   ```
+
+4. 打开「系统设置 → 键盘 → 文字输入 → 输入来源」，点击 `+` 添加「紫霞输入法」（系统设置中可能以英文名 `Linguist Zixia Input` 显示）。
 
 ## 构建
 
