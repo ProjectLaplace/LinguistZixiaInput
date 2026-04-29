@@ -16,6 +16,12 @@ public class DictionaryStore {
             return nil
         }
 
+        // 性能调优 PRAGMA：仅适用于只读 zh_dict 单进程访问场景，失败时回退默认行为
+        sqlite3_exec(db, "PRAGMA mmap_size = 268435456;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size = -20000;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA temp_store = MEMORY;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE;", nil, nil, nil)
+
         let sql = "SELECT word FROM entries WHERE pinyin = ? ORDER BY frequency DESC"
         guard sqlite3_prepare_v2(db, sql, -1, &queryStmt, nil) == SQLITE_OK else {
             sqlite3_close(db)

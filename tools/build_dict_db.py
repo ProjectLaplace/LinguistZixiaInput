@@ -107,6 +107,8 @@ def create_db(path):
     if os.path.exists(path):
         os.remove(path)
     conn = sqlite3.connect(path)
+    # page_size 是 create-time pragma，必须在任何 schema 创建之前设定
+    conn.execute("PRAGMA page_size = 8192")
     conn.execute("""
         CREATE TABLE entries (
             pinyin TEXT NOT NULL,

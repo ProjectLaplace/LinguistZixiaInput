@@ -28,7 +28,13 @@ public class UserDictionary {
         if let queryStmt = queryStmt { sqlite3_finalize(queryStmt) }
         if let prefixStmt = prefixStmt { sqlite3_finalize(prefixStmt) }
         if let existsStmt = existsStmt { sqlite3_finalize(existsStmt) }
-        if let db = db { sqlite3_close(db) }
+        if let db = db {
+            // 触发 ANALYZE 并把统计信息写入 sqlite_stat1 系统表（持久化于 DB 文件）。
+            // 下次进程启动时，SQLite query planner 在 prepare 阶段会自动读取这些
+            // 统计信息并据此选择执行计划，应用层无需任何代码改动。
+            sqlite3_exec(db, "PRAGMA optimize;", nil, nil, nil)
+            sqlite3_close(db)
+        }
     }
 
     // MARK: - Setup
@@ -39,6 +45,15 @@ public class UserDictionary {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
         guard sqlite3_open(path, &db) == SQLITE_OK else { return false }
+
+        // 性能调优 PRAGMA：page_size 必须先于任何 schema 创建；其余为 runtime 设定
+        sqlite3_exec(db, "PRAGMA page_size = 8192;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA journal_mode = WAL;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA synchronous = NORMAL;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA busy_timeout = 5000;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size = -20000;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA temp_store = MEMORY;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA mmap_size = 268435456;", nil, nil, nil)
 
         let createSQL = """
             CREATE TABLE IF NOT EXISTS user_entries (
