@@ -187,6 +187,10 @@ benti|lun       本体论    本提论
 
 ## 致谢
 
+感谢 [rime-ice](https://github.com/iDvel/rime-ice) 与 [rime-frost](https://github.com/gaboolic/rime-frost) 公开发布的中文词库数据。
+
+感谢 [vChewing](https://github.com/vChewing/vChewing-macOS) 公开整理的 IMK 候选栏实现陷阱与变通方案。
+
 感谢 [Squirrel](https://github.com/rime/squirrel)、[fcitx5-macos](https://github.com/fcitx-contrib/fcitx5-macos)、[Google Japanese Input / Mozc](https://github.com/google/mozc) 与 macOS 系统输入法为 IMK 菜单图标提供参考实现。
 
 ## 许可
