@@ -456,7 +456,7 @@ public class PinyinEngine {
 
     private static func vCommandISODateTime() -> String {
         let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXX"
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssxxx"
         return f.string(from: Date())
     }
 
