@@ -7,6 +7,14 @@ BUILD_DIR = $(CURDIR)/build
 # Serialize agent-triggered Xcode builds through one shared DerivedData cache.
 XCODEBUILD_LOCK = $(BUILD_DIR)/.xcodebuild.lock
 XCODEBUILD = tools/with_xcodebuild_lock.sh $(XCODEBUILD_LOCK) xcodebuild
+# 强制 universal binary：不指定 destination 时 xcodebuild 会从 {arm64, x86_64, Any Mac}
+# 中挑第一条（host arch），其 arch 字段反过来覆盖 ARCHS，把 build 约束成单一架构。
+# generic/platform=macOS 是「不绑定具体架构」的 destination，不会触发这种 override，
+# ARCHS 按项目自身配置生效（macOS SDK 的 ARCHS_STANDARD 恰好同时包含 arm64 与 x86_64）。
+#
+# 仅在 release target 启用（用于分发/跨架构部署测试）。日常 build / make install
+# 不带此 flag，保持 host-arch only 的快速迭代体验。
+XCDEST = -destination 'generic/platform=macOS'
 APP_NAME = Linguist Zixia Input.app
 INSTALL_DIR = $(HOME)/Library/Input Methods
 QUIET_FLAG = $(if $(V),,-quiet)
@@ -81,7 +89,7 @@ dict-release: ## 重新生成 production zh_dict
 
 release: $(DICT_DB) unbundle-alt-dicts ## 构建 Release 并注入 MARKETING_VERSION
 	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration Release \
-		-derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) $(XCFLAGS) \
+		$(XCDEST) -derivedDataPath $(BUILD_DIR) $(QUIET_FLAG) $(XCFLAGS) \
 		MARKETING_VERSION=$(VERSION_NUMBER) \
 		build
 
