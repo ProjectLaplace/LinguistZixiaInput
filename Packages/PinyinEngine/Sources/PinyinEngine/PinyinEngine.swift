@@ -1612,10 +1612,22 @@ public class PinyinEngine {
     }
 
     /// 获取用于 Enter 提交的原文（拼音原文 + 已确定文本 + 字面块原样）。
-    /// 边界空格规则统一走 `ComposingItem.needsSeparatorSpace`，与候选区呈现及
-    /// 整串提交字符串一致。
+    /// Enter 是用户的「逃生口」，语义为「放弃候选转换、按原文输出」，
+    /// 因此按 `composingItems` 顺序原样拼接，不插入任何分隔空格，
+    /// 与候选确认路径（空格 / 数字键）依据 `ComposingItem.needsSeparatorSpace`
+    /// 的混输空格规则解耦。
     private func rawContentForCommit() -> String {
-        joinedCommitText(composingItems)
+        var result = ""
+        for item in composingItems {
+            switch item {
+            case .text(let s), .pinyin(let s), .literal(let s):
+                result += s
+            case .provisional(let pinyin, _):
+                // Enter 取原始拼音，不取预览候选
+                result += pinyin
+            }
+        }
+        return result
     }
 
     /// 把一组 composingItems 拼接为最终 commit 字符串。

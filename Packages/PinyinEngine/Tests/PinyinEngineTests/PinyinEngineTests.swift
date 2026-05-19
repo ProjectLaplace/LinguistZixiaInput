@@ -928,11 +928,57 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(state.candidates.first, "现在")
     }
 
-    func testEnterCommitsRawWithLiteralSpacing() {
-        // Enter 提交原文，中英边界保留空格
+    func testEnterCommitsRawWithoutSeparatorSpace() {
+        // Enter 是「按原文输出」的逃生口，与候选确认路径的混输空格规则解耦：
+        // 不在字面块 ↔ 拼音段边界补任何空格，直接按 composingItems 顺序拼接。
         type("xianzaiAPIpengyou")
         let committed = enter()
-        XCTAssertEqual(committed.committedText, "xianzai API pengyou")
+        XCTAssertEqual(committed.committedText, "xianzaiAPIpengyou")
+    }
+
+    func testEnterCommitsTitleCaseWordWithoutSpace() {
+        // Title Case 英文单词（如「Veil」）：V 触发字面块、eil 进入拼音段，
+        // Enter 须按原样输出「Veil」，绝不可在字面块 ↔ 拼音段边界补空格。
+        type("Veil")
+        let committed = enter()
+        XCTAssertEqual(committed.committedText, "Veil")
+    }
+
+    func testEnterCommitsMixedLiteralAndPinyinWithoutSpace() {
+        // 拼音 + 字面块混排：xianzaiAPI 按 Enter 须输出原文「xianzaiAPI」，
+        // 不补「xianzai API」之类的混输空格。
+        type("xianzaiAPI")
+        let committed = enter()
+        XCTAssertEqual(committed.committedText, "xianzaiAPI")
+    }
+
+    func testEnterCommitsPureRawPinyinWithoutSpace() {
+        // 纯拼音输入未选候选直接按 Enter，须按原样输出拼音串。
+        type("nihao")
+        let committed = enter()
+        XCTAssertEqual(committed.committedText, "nihao")
+    }
+
+    func testEnterCommitsConfirmedTextPlusLiteralPlusPinyinWithoutSpace() {
+        // 构造 .text + .literal + .pinyin 的混合 composing buffer，
+        // 验证 Enter 在所有边界一律不补空格：
+        //   xianzaiAPIpengyou → 候选 pos 2 = 「现在」（混输首段备选）→ 选中后
+        //   buffer = [.text("现在"), .literal("API"), .pinyin("pengyou")]
+        // Enter 须按原样输出「现在APIpengyou」，跨 .text ↔ .literal、
+        // .literal ↔ .pinyin 两条边界均不补空格。
+        type("xianzaiAPIpengyou")
+        _ = number(2)  // 选「现在」→ 进入预编辑文本
+        let committed = enter()
+        XCTAssertEqual(committed.committedText, "现在APIpengyou")
+    }
+
+    func testSpaceCommitStillAppliesLiteralSeparatorSpacing() {
+        // 对照测试：候选确认路径（空格）仍走 needsSeparatorSpace 边界规则，
+        // 不受 Enter 路径改动影响。xianzaiAPIpengyou 按空格提交整句应保留
+        // 「现在 API 朋友」的中英边界空格。
+        type("xianzaiAPIpengyou")
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "现在 API 朋友")
     }
 
     func testLiteralStartingBufferOpensSpan() {
