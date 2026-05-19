@@ -441,20 +441,27 @@ class LaplaceInputController: IMKInputController {
         let items = currentState.items
 
         for (index, item) in items.enumerated() {
-            // 相邻两项之间是否插入空格的判定下放给引擎层：
-            // 拼音 / 预览 ↔ 字面块边界恒补空格；已确认 .text 与字面块、或两个 .text
-            // 相邻时按内容首末字符判定中↔拉边界；其余不补。详见
-            // `ComposingItem.needsSeparatorSpace`。
-            if index > 0,
-                ComposingItem.needsSeparatorSpace(
-                    before: items[index - 1], after: item)
-            {
-                result.append(
-                    NSAttributedString(
-                        string: " ",
-                        attributes: [
-                            .underlineStyle: NSUnderlineStyle.single.rawValue
-                        ]))
+            // 相邻两项之间插入空格 iff 两侧都不是已确认 .text。
+            // 拼音 / 预览 / 字面块互相之间均以空格作视觉分隔（即便两段同为拼音，
+            // 也应显示分段断点）；已确认 .text 与任何项相邻时不补空格，最终中文
+            // 衔接由 commit 时的内容决定。注意：commit 路径走引擎层
+            // `ComposingItem.needsSeparatorSpace`，规则不同——marked text 侧重显示
+            // 结构，commit 侧重最终字面输出，两套语义独立。
+            if index > 0 {
+                let prevIsText: Bool = {
+                    if case .text = items[index - 1] { return true } else { return false }
+                }()
+                let curIsText: Bool = {
+                    if case .text = item { return true } else { return false }
+                }()
+                if !prevIsText && !curIsText {
+                    result.append(
+                        NSAttributedString(
+                            string: " ",
+                            attributes: [
+                                .underlineStyle: NSUnderlineStyle.single.rawValue
+                            ]))
+                }
             }
 
             let text: String
