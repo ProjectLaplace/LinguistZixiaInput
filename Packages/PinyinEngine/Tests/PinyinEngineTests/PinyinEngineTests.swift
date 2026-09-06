@@ -805,6 +805,18 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(committed.committedText, "刚才的")
     }
 
+    // MARK: - 中间裸声母缩写
+
+    func testMedialBareInitialKeepsFollowingSyllables() {
+        // wo + d(→de) + pengyou：中间缩写之后仍有完整音节，
+        // 候选应覆盖整串，而非坍缩到末段
+        let state = type("wodpengyou")
+        XCTAssertEqual(state.candidates.first, "我的朋友")
+
+        let committed = space()
+        XCTAssertEqual(committed.committedText, "我的朋友")
+    }
+
     // MARK: - Garbage-tail fallback (孤立韵母回退)
 
     // 用户输入了既不是音节也不是声母的「垃圾尾巴」（如 wuwuu 末尾的 u），

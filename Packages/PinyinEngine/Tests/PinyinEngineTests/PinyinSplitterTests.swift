@@ -110,4 +110,43 @@ final class PinyinSplitterTests: XCTestCase {
         XCTAssertEqual(PinyinSplitter.split("nver"), ["nv", "er"])
         XCTAssertEqual(PinyinSplitter.split("lve"), ["lve"])
     }
+
+    // MARK: - splitPartial 与裸声母缩写
+
+    func testPartialMedialBareInitialFollowedBySyllable() {
+        // 中间的裸声母缩写不应阻断其后完整音节的切分
+        var result = PinyinSplitter.splitPartial("duoyudshi")
+        XCTAssertEqual(result.syllables, ["duo", "yu", "d", "shi"])
+        XCTAssertEqual(result.remainder, "")
+
+        result = PinyinSplitter.splitPartial("dshi")
+        XCTAssertEqual(result.syllables, ["d", "shi"])
+        XCTAssertEqual(result.remainder, "")
+
+        // 多个缩写混杂
+        result = PinyinSplitter.splitPartial("wodpengyou")
+        XCTAssertEqual(result.syllables, ["wo", "d", "peng", "you"])
+        XCTAssertEqual(result.remainder, "")
+
+        // 撇号分隔不影响结果
+        result = PinyinSplitter.splitPartial("duoyu'dshi")
+        XCTAssertEqual(result.syllables, ["duo", "yu", "d", "shi"])
+        XCTAssertEqual(result.remainder, "")
+    }
+
+    func testPartialTrailingInitialStaysInRemainder() {
+        // 串尾声母保留为 remainder，用户可能仍在输入韵母
+        var result = PinyinSplitter.splitPartial("gangcd")
+        XCTAssertEqual(result.syllables, ["gang", "c"])
+        XCTAssertEqual(result.remainder, "d")
+
+        // 双字母声母按最长匹配整体保留
+        result = PinyinSplitter.splitPartial("duoyudsh")
+        XCTAssertEqual(result.syllables, ["duo", "yu", "d"])
+        XCTAssertEqual(result.remainder, "sh")
+
+        result = PinyinSplitter.splitPartial("chzb")
+        XCTAssertEqual(result.syllables, ["ch", "z"])
+        XCTAssertEqual(result.remainder, "b")
+    }
 }
