@@ -156,4 +156,46 @@ final class PinnedWordIntegrationTests: XCTestCase {
         let after = type(engine, "shi")
         XCTAssertEqual(after.candidates.first, "时")
     }
+
+    // MARK: - 组合词自动记入固顶词
+
+    func testComposedWordIsPinnedOnCommit() {
+        // kaifajishu 组出「开技」，提交时即在 kaiji 下建立固顶词条目，无需额外手势
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let engine = makeEngine(pinnedWords: pinned)
+
+        _ = type(engine, "kaifajishu")
+        _ = engine.process(.cycleActiveCandidate(backward: false))
+        _ = engine.process(.bracket(pickLast: false))
+        let state = engine.process(.bracket(pickLast: false))
+
+        XCTAssertEqual(state.committedText, "开技")
+        XCTAssertEqual(pinned.pinned(for: "kaiji"), ["开技"])
+    }
+
+    func testPinnedComposedWordBecomesCandidateForItsOwnPinyin() {
+        // 写入后，直接输入该词自身的拼音即可得到它
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let engine = makeEngine(pinnedWords: pinned)
+
+        _ = type(engine, "kaifajishu")
+        _ = engine.process(.cycleActiveCandidate(backward: false))
+        _ = engine.process(.bracket(pickLast: false))
+        _ = engine.process(.bracket(pickLast: false))
+
+        let state = type(engine, "kaiji")
+        XCTAssertEqual(state.candidates.first, "开技")
+    }
+
+    func testComposedWordPinningIsSilentWithoutStore() {
+        // 未注入 pinnedWords 时不应崩溃，提交行为不受影响
+        let engine = makeEngine(pinnedWords: nil)
+
+        _ = type(engine, "kaifajishu")
+        _ = engine.process(.cycleActiveCandidate(backward: false))
+        _ = engine.process(.bracket(pickLast: false))
+        let state = engine.process(.bracket(pickLast: false))
+
+        XCTAssertEqual(state.committedText, "开技")
+    }
 }

@@ -202,6 +202,93 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(committed.committedText, secondCandidate + "，")
     }
 
+    // MARK: - 组合词自动记入固顶词
+
+    func testComposeChainPinsComposedWordWithItsOwnPinyin() {
+        // kaifajishu → Ctrl+Tab →「开发」→ [ →「开」(kai) → [ →「技术」取「技」(ji)
+        // 提交「开技」时应自动记入固顶词，其拼音为 kaiji，而非输入的 kaifajishu
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = makePinnedEngine(pinnedWords: pinned)
+
+        typeInto(testEngine, "kaifajishu")
+        _ = testEngine.process(.cycleActiveCandidate(backward: false))
+        _ = testEngine.process(.bracket(pickLast: false))
+        let state = testEngine.process(.bracket(pickLast: false))
+
+        XCTAssertEqual(state.committedText, "开技")
+        XCTAssertEqual(pinned.pinned(for: "kaiji"), ["开技"])
+    }
+
+    func testBracketRightPinsUnderLastSyllables() {
+        // ] 取末字，其拼音应为所消耗片段的末音节
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = makePinnedEngine(pinnedWords: pinned)
+
+        typeInto(testEngine, "kaifajishu")
+        _ = testEngine.process(.cycleActiveCandidate(backward: false))
+        _ = testEngine.process(.bracket(pickLast: true))  // 「开发」取「发」(fa)
+        let state = testEngine.process(.bracket(pickLast: true))  // 「技术」取「术」(shu)
+
+        XCTAssertEqual(state.committedText, "发术")
+        XCTAssertEqual(pinned.pinned(for: "fashu"), ["发术"])
+    }
+
+    func testWholeStringCommitIsNotPinned() {
+        // 整串提交只有一个确认步骤，不构成「组合」，不写入
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = makePinnedEngine(pinnedWords: pinned)
+
+        typeInto(testEngine, "kaifajishu")
+        let state = testEngine.process(.space)
+
+        XCTAssertEqual(state.committedText, "开发技术")
+        XCTAssertEqual(pinned.pinned(for: "kaifajishu"), [])
+    }
+
+    func testSingleCharCommitIsNotPinned() {
+        // 单字上屏同样是单步提交，不写入
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = makePinnedEngine(pinnedWords: pinned)
+
+        typeInto(testEngine, "shi")
+        let state = testEngine.process(.space)
+
+        XCTAssertEqual(state.committedText, "是")
+        XCTAssertEqual(pinned.pinned(for: "shi"), [])
+    }
+
+    func testEscDiscardsWithoutPinning() {
+        // 组词中途丢弃，不应留下任何条目
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let testEngine = makePinnedEngine(pinnedWords: pinned)
+
+        typeInto(testEngine, "kaifajishu")
+        _ = testEngine.process(.cycleActiveCandidate(backward: false))
+        _ = testEngine.process(.bracket(pickLast: false))
+        let state = testEngine.process(.esc)
+
+        XCTAssertNil(state.committedText)
+        XCTAssertEqual(pinned.pinned(for: "kai"), [])
+    }
+
+    /// 构造注入 pinnedWords 的引擎（组合词写入需要该存储）
+    private func makePinnedEngine(pinnedWords: PinnedWordStore) -> PinyinEngine {
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
+        return PinyinEngine(
+            zhDictPath: zhPath, jaDictPath: jaPath, userDictPath: ":memory:",
+            pinnedChars: nil, pinnedWords: pinnedWords)
+    }
+
+    @discardableResult
+    private func typeInto(_ engine: PinyinEngine, _ text: String) -> EngineState {
+        var state = EngineState.idle
+        for char in text {
+            state = engine.process(.letter(char))
+        }
+        return state
+    }
+
     // MARK: - Bracket Compose Mode
 
     func testBracketOnFirstWordCandidateEntersComposeMode() {

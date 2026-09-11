@@ -251,6 +251,16 @@ public class PinyinEngine {
 
     private var focusIndex: Int? = nil  // 聚焦的可编辑段索引，nil = 末尾
 
+    /// 组词轨迹：本轮组合中每个确认步骤产出的文本及其实际取用的音节，按确认顺序排列。
+    /// `[` 取所消耗片段的首音节，`]` 取末音节，数字选词取该候选消耗的整段音节。
+    /// 由此拼出的拼音是组合词自身的读音，而非用户输入的原始串：以 `shijueyanzou`
+    /// 经「视觉」取「视」、「演奏」取「奏」组出「视奏」，其自身拼音为 `shizou`。
+    private var composeTrail: [(text: String, pinyin: String)] = []
+
+    /// 轨迹是否可信。Tab 聚焦确认可乱序改写已有段，其顺序无法由追加式轨迹表达，
+    /// 故该路径将轨迹置为不可信，本轮不登记组合词。
+    private var composeTrailTrusted = true
+
     /// 候选文本到该候选实际消耗的拼音段的映射。仅在候选未覆盖整个 cleanPinyin 时登记；
     /// 未登记的候选默认覆盖整串拼音，被选中时进入 `finalizeAllPinyin`；
     /// 已登记的候选被选中时进入 `confirmFirstSegment`，按记录的拼音段截除 rawPinyin 后继续组词。
@@ -539,6 +549,14 @@ public class PinyinEngine {
 
         case .logGlitch:
             glitchLogged = handleLogGlitch()
+        }
+
+        if committedText != nil {
+            pinComposedWordIfAny()
+        }
+        if composingItems.isEmpty {
+            composeTrail = []
+            composeTrailTrusted = true
         }
 
         return EngineState(
@@ -849,8 +867,14 @@ public class PinyinEngine {
         let consumeCount = active.count
         let (allSyllables, remainder) = PinyinSplitter.splitPartial(rawPinyin)
 
+        // 取字的拼音取自所消耗片段：`[` 取首音节，`]` 取末音节。
+        // 音节数不足以覆盖候选字数时（切分与候选不对齐）留空，该步骤不参与组合词登记。
+        let consumedSyllables = allSyllables.prefix(consumeCount)
+        let charPinyin = pickLast ? (consumedSyllables.last ?? "") : (consumedSyllables.first ?? "")
+
         if remainder.isEmpty && consumeCount < allSyllables.count {
             let remainingPinyin = allSyllables[consumeCount...].joined()
+            recordComposeStep(text: char, pinyin: charPinyin)
             composingItems.append(.text(char))
             rawPinyin = remainingPinyin
             focusIndex = nil
@@ -859,7 +883,7 @@ public class PinyinEngine {
         }
 
         // 直接提交：选中的字与已确认的 .text 项一并提交，未选中的部分丢弃。
-        finalizeAllPinyin(with: char)
+        finalizeAllPinyin(with: char, pinyin: charPinyin)
         let result = joinedCommitText(composingItems)
         resetAll()
         return result
@@ -1513,7 +1537,14 @@ public class PinyinEngine {
 
     /// 将整个输入串替换为一个确定的文本（正常模式下选词/以词定字）。
     /// 混输态下候选已是整句合成结果（含字面块原文），同样以单一 .text 替换所有派生项。
-    private func finalizeAllPinyin(with text: String) {
+    /// 参数 `pinyin` 为该文本自身的拼音；省略时取剩余拼音全串（整串方案）。
+    /// 以词定字只取候选中的一个字，其拼音由调用方按 `[` / `]` 的语义指定。
+    private func finalizeAllPinyin(with text: String, pinyin: String? = nil) {
+        let ownPinyin =
+            pinyin
+            ?? Self.normalizePinyin(rawPinyin.lowercased().replacingOccurrences(of: "'", with: ""))
+        recordComposeStep(text: text, pinyin: ownPinyin)
+
         // 移除所有由 rawSpans 派生的项（可编辑拼音段与字面块）
         composingItems.removeAll { $0.isEditable || $0.isLiteral }
         composingItems.append(.text(text))
@@ -1522,12 +1553,50 @@ public class PinyinEngine {
         candidates = []
     }
 
+    // MARK: - 组词轨迹
+
+    /// 登记一个确认步骤：该步骤产出的文本，以及它实际取用的音节。
+    private func recordComposeStep(text: String, pinyin: String) {
+        composeTrail.append((text: text, pinyin: pinyin))
+    }
+
+    /// 结算本轮组合：由两个以上确认步骤拼成、且全为汉字时，把它连同自身的拼音
+    /// 记入固顶词用户层，使下次输入该拼音即可直接得到它。
+    ///
+    /// 组词本身已是显式动作，故不再要求用户追加确认手势。单步提交（整串选词、
+    /// 单字上屏）不构成「组合」，不记录。
+    /// - Returns: 实际写入时返回 true，供 UI 给出一次反馈。
+    private func pinComposedWordIfAny() -> Bool {
+        defer {
+            composeTrail = []
+            composeTrailTrusted = true
+        }
+        guard composeTrailTrusted, composeTrail.count >= 2 else { return false }
+
+        let text = composeTrail.map { $0.text }.joined()
+        let pinyin = composeTrail.map { $0.pinyin }.joined()
+        guard !pinyin.isEmpty, pinyin.allSatisfy({ $0.isLetter && $0.isASCII }) else {
+            return false
+        }
+        guard text.unicodeScalars.allSatisfy({ Self.isHanScalar($0) }) else { return false }
+        guard let pinnedWords = pinnedWords else { return false }
+
+        pinnedWords.pin(text, forPinyin: pinyin)
+        return true
+    }
+
+    private static func isHanScalar(_ scalar: Unicode.Scalar) -> Bool {
+        (0x4E00...0x9FFF).contains(scalar.value) || (0x3400...0x4DBF).contains(scalar.value)
+    }
+
     /// 确认 Tab 聚焦段的候选，然后移动焦点或自动提交
     /// 返回提交文本（所有段已确认时），nil 表示继续编辑
     @discardableResult
     private func confirmFocusedSegment(with text: String) -> String? {
         guard let idx = focusIndex, idx < composingItems.count else { return nil }
 
+        // Tab 聚焦可乱序改写已有段，追加式轨迹无法表达其顺序，本轮不登记组合词
+        composeTrailTrusted = false
         composingItems[idx] = .text(text)
 
         // 从 rawPinyin 中移除已确认段的拼音
@@ -1558,6 +1627,8 @@ public class PinyinEngine {
         guard normalizedRaw.hasPrefix(consumedPinyin) else { return }
 
         let remainingNormalized = String(normalizedRaw.dropFirst(consumedPinyin.count))
+
+        recordComposeStep(text: text, pinyin: consumedPinyin)
 
         // 重建：confirmed text + 剩余拼音继续组词
         let confirmedPrefix = composingItems.filter { !$0.isEditable }
