@@ -711,19 +711,14 @@ final class PinyinEngineTests: XCTestCase {
 
     // MARK: - 每次按键只组词一次
 
-    /// 一次按键内，同一输入串的 Conversion 结果被复用：该键的查询次数少于两次组词之和。
+    /// 一次按键内，同一输入串的 Conversion 结果被复用：重建与候选生成合计只组词一次。
     func testKeystrokeComposesItsInputOnlyOnce() {
-        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
-        let reference = DictionaryStore(path: zhPath)!
-        _ = Conversion.compose("gangcd", store: reference)
-        let composeStatements = reference.stats.statements
-
         type("gangc")
-        engine.zhDictionary!.resetStats()
+        let before = engine.pinyinComposeCount
         let state = type("d")
 
         XCTAssertEqual(state.candidates.first, "刚才的")
-        XCTAssertLessThan(engine.zhDictionary!.stats.statements, 2 * composeStatements)
+        XCTAssertEqual(engine.pinyinComposeCount - before, 1)
     }
 
     // MARK: - ü Alternative Spelling (u 代替 ü)

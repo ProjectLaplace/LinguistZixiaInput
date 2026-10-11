@@ -141,11 +141,9 @@ public class UserDictionary {
 
     /// Look up words whose pinyin starts with the given prefix.
     public func candidatesWithPrefix(_ prefix: String, limit: Int = 9) -> [String] {
-        guard let stmt = prefixStmt, !prefix.isEmpty else { return [] }
-
-        var upper = prefix
-        let lastChar = upper.removeLast()
-        upper.append(Character(UnicodeScalar(lastChar.asciiValue! + 1)))
+        guard let stmt = prefixStmt, let upper = DictionaryStore.prefixUpperBound(prefix) else {
+            return []
+        }
 
         sqlite3_reset(stmt)
         sqlite3_bind_text(stmt, 1, prefix, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))

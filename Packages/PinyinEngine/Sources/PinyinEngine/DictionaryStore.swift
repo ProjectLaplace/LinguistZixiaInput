@@ -248,7 +248,8 @@ public class DictionaryStore {
     }
 
     /// 前缀区间的上界：末字符加一（`shi` → `shj`）。前缀为空或末字符非 ASCII 时返回 nil。
-    private static func prefixUpperBound(_ prefix: String) -> String? {
+    /// 系统词库与用户词典的前缀范围查询共用此计算。
+    static func prefixUpperBound(_ prefix: String) -> String? {
         guard let last = prefix.last, let ascii = last.asciiValue, ascii < 127 else { return nil }
         return String(prefix.dropLast()) + String(UnicodeScalar(ascii + 1))
     }
@@ -260,12 +261,7 @@ public class DictionaryStore {
     ///   - limit: Maximum number of results (default 9)
     /// - Returns: Array of candidate words, ordered by frequency descending
     public func candidatesWithPrefix(_ prefix: String, limit: Int = 9) -> [String] {
-        guard let stmt = prefixStmt, !prefix.isEmpty else { return [] }
-
-        // Compute the upper bound: increment the last character
-        var upper = prefix
-        let lastChar = upper.removeLast()
-        upper.append(Character(UnicodeScalar(lastChar.asciiValue! + 1)))
+        guard let stmt = prefixStmt, let upper = Self.prefixUpperBound(prefix) else { return [] }
 
         sqlite3_reset(stmt)
         sqlite3_bind_text(stmt, 1, prefix, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))

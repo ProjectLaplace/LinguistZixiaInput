@@ -210,6 +210,10 @@ public class PinyinEngine {
     /// 当前中文词库。只读暴露，供性能测量读取其查询计数（`DictionaryStore.stats`）。
     public var zhDictionary: DictionaryStore? { zhStore }
 
+    /// 重建与候选生成两处发起的纯拼音组词累计次数，供测试核对一次按键只组词一次。
+    /// 查询缓存使重复组词不再执行 SQL，故不能以查询次数判断。
+    private(set) var pinyinComposeCount = 0
+
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
     private var candidates: [String] = [] {
@@ -1084,7 +1088,8 @@ public class PinyinEngine {
         let store = (currentMode == .pinyin) ? zhStore : jaStore
         let cleanPinyin = rawPinyin.lowercased().replacingOccurrences(of: "'", with: "")
         let convResult = store.flatMap {
-            Conversion.compose(
+            pinyinComposeCount += 1
+            return Conversion.compose(
                 cleanPinyin, store: $0, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
         }
 
@@ -1811,6 +1816,7 @@ public class PinyinEngine {
             }
         }
         guard let store = store, !input.isEmpty else { return nil }
+        pinyinComposeCount += 1
         return Conversion.compose(
             input, store: store, pinnedChars: pinnedChars, pinnedWords: pinnedWords)
     }
