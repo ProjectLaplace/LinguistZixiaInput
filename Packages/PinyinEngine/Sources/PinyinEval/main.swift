@@ -271,6 +271,7 @@ if args.count < 2 {
         stderr)
     fputs("       pinyin-eval [--json] \"jingque|biaoyi 精确表意 精确表姨\"\n", stderr)
     fputs("       pinyin-eval -q <pinyin>\n", stderr)
+    fputs("       pinyin-eval --bench <sequences-file> [--runs N] [--dict <path>]\n", stderr)
     exit(1)
 }
 
@@ -278,6 +279,8 @@ if args.count < 2 {
 var dictPath: String?
 var inputArg: String?
 var queryMode = false
+var benchMode = false
+var benchRuns = 5
 var jsonMode = false
 let defaults = ScoringConfig.default
 var coverageWeight: Double = defaults.coverageWeight
@@ -293,6 +296,16 @@ while i < args.count {
     } else if args[i] == "-q" || args[i] == "--query" {
         queryMode = true
         i += 1
+    } else if args[i] == "--bench" {
+        benchMode = true
+        i += 1
+    } else if args[i] == "--runs" && i + 1 < args.count {
+        guard let v = Int(args[i + 1]), v > 0 else {
+            fputs("Error: --runs expects a positive integer, got '\(args[i + 1])'\n", stderr)
+            exit(1)
+        }
+        benchRuns = v
+        i += 2
     } else if args[i] == "--json" {
         jsonMode = true
         i += 1
@@ -369,6 +382,13 @@ guard let store = DictionaryStore(path: resolvedDictPath) else {
 
 let pinnedChars = findPinnedChars()
 let pinnedWords = findPinnedWords()
+
+// --bench 模式：逐键测量引擎的耗时与词库查询开销
+if benchMode {
+    runBench(
+        file: input, runs: benchRuns, zhDictPath: resolvedDictPath,
+        pinnedChars: pinnedChars, pinnedWords: pinnedWords)
+}
 
 // -q 模式：查询词库
 if queryMode {

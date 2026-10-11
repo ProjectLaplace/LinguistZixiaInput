@@ -1,0 +1,37 @@
+# 逐键开销测量序列（make bench）。
+# [分组] 开启一个分组，其后每行一个输入串，逐字母键入引擎。
+# full：完整拼音；abbr：只键入声母的简拼；mixed：完整拼音与简拼混合。
+# 这些序列只用于测量，不得为它们写特判。
+
+[full]
+women
+jisuanji
+rengongzhineng
+shijianguanli
+ziranyuyan
+womendeshijian
+jintiantianqihenhao
+xianzai
+kaifajishu
+shurufa
+yinwei
+yuyanxue
+
+[abbr]
+js
+jsj
+rgzn
+zryy
+wmdsx
+jsjsjs
+rgznjs
+rgznzryy
+yyx
+kfjs
+
+[mixed]
+shijianrgzn
+womenjs
+gangcd
+rengongzn
+jintianqhh

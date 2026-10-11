@@ -167,6 +167,10 @@ benti|lun       本体论    本提论
 - col2：预期输出（绿色标准）。
 - col3：合理输出（可选，橙色标准）。
 
+### 逐键开销测量（make bench）
+
+`make bench` 以生产词库逐字母键入 `fixtures/latency-bench.txt` 中的序列，测量每次按键的耗时、词库 SQL 语句执行次数与 SQLite VM 步数，按分组（`full` 完整拼音、`abbr` 简拼、`mixed` 混合）给出 p50、p95 与最大值，并给出简拼组与完整拼音组的比值。每个序列先预热一轮，再取五轮的逐键中位数；每轮新建引擎，用户词典使用内存库，不读写用户数据。`BENCH=<file>` 指定其他序列文件。
+
 ## 项目结构
 
 - `Packages/PinyinEngine` - 纯 Swift 输入法引擎，仅依赖 Foundation。
@@ -175,6 +179,7 @@ benti|lun       本体论    本提论
 - `tools/build_dict_db.py` - 词库构建工具。
 - `fixtures/` - 测试用小型 JSON 词库。
 - `fixtures/pinyin-strings.cases` - Conversion 回归测试案例。
+- `fixtures/latency-bench.txt` - 逐键开销测量序列（`make bench`）。
 
 ## 文档
 

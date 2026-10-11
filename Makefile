@@ -23,7 +23,7 @@ VERSION_NUMBER = $(VERSION:v%=%)
 ZIP_NAME = LinguistZixiaInput-$(VERSION).zip
 DICT_DB = Packages/PinyinEngine/Sources/PinyinEngine/Resources/zh_dict.db
 
-.PHONY: help bootstrap build install reload clean test dict dict-release dicts-all bundle-alt-dicts unbundle-alt-dicts eval-dicts eval-stability release dist format eval query list-user-words reset-user-words
+.PHONY: help bootstrap build install reload clean test dict dict-release dicts-all bundle-alt-dicts unbundle-alt-dicts eval-dicts eval-stability release dist format eval bench query list-user-words reset-user-words
 
 TEST_RESOURCES = Packages/PinyinEngine/Tests/PinyinEngineTests/Resources
 
@@ -160,6 +160,12 @@ ifdef CASE
 else
 	cd Packages/PinyinEngine && swift run pinyin-eval ../../fixtures/pinyin-strings.cases
 endif
+
+# 逐键开销测量：用生产词库逐字母键入 fixtures/latency-bench.txt 中的序列，
+# 报告每次按键的耗时、SQL 语句次数与 SQLite VM 步数（按分组给出 p50/p95/max）。
+# Release 配置编译，使耗时接近实际使用。BENCH=<file> 指定序列文件。
+bench: ## 逐键测量耗时与词库查询开销（BENCH=<file> 指定序列文件）
+	cd Packages/PinyinEngine && swift run -c release pinyin-eval --bench "$(abspath $(if $(BENCH),$(BENCH),fixtures/latency-bench.txt))"
 
 query: ## 单条 pinyin 查询（make query P=<pinyin>）
 ifndef P

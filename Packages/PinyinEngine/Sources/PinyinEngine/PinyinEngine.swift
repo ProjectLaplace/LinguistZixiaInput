@@ -207,6 +207,9 @@ public class PinyinEngine {
     private var pinnedWords: PinnedWordStore?
     private var customPhrases: CustomPhraseStore?
 
+    /// 当前中文词库。只读暴露，供性能测量读取其查询计数（`DictionaryStore.stats`）。
+    public var zhDictionary: DictionaryStore? { zhStore }
+
     // 内部状态管理
     private var composingItems: [ComposingItem] = []
     private var candidates: [String] = [] {

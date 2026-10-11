@@ -9,6 +9,19 @@ public class DictionaryStore {
     private var prefixStmt: OpaquePointer?
     private var topStmt: OpaquePointer?
 
+    /// 查询开销的累计计数，供性能测量读取。
+    public struct QueryStats: Equatable {
+        /// 执行的 SQL 语句次数
+        public var statements = 0
+        /// SQLite 虚拟机执行步数（`SQLITE_STMTSTATUS_VM_STEP`），反映查询实际扫描与排序的工作量
+        public var vmSteps = 0
+
+        public init() {}
+    }
+
+    /// 自创建或上次 `resetStats()` 以来的累计查询开销
+    public private(set) var stats = QueryStats()
+
     /// Open a SQLite dictionary database at the given file path.
     /// - Parameter path: Absolute path to the .db file
     public init?(path: String) {
@@ -50,6 +63,18 @@ public class DictionaryStore {
         if let db = db { sqlite3_close(db) }
     }
 
+    /// 清零累计查询开销
+    public func resetStats() {
+        stats = QueryStats()
+    }
+
+    /// 记录一次语句执行的开销。读取 VM 步数时同时清零该语句的计数器，
+    /// 使复用的预编译语句每次只计入本次执行。
+    private func recordExecution(of stmt: OpaquePointer) {
+        stats.statements += 1
+        stats.vmSteps += Int(sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_VM_STEP, 1))
+    }
+
     /// Look up candidate words for an exact pinyin string.
     /// - Parameter pinyin: The pinyin key (e.g. "shi", "shijian")
     /// - Returns: Array of candidate words, ordered by frequency descending
@@ -65,6 +90,7 @@ public class DictionaryStore {
                 results.append(String(cString: cStr))
             }
         }
+        recordExecution(of: stmt)
         return results
     }
 
@@ -77,7 +103,9 @@ public class DictionaryStore {
         sqlite3_reset(stmt)
         sqlite3_bind_text(stmt, 1, pinyin, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
-        guard sqlite3_step(stmt) == SQLITE_ROW,
+        let stepResult = sqlite3_step(stmt)
+        recordExecution(of: stmt)
+        guard stepResult == SQLITE_ROW,
             let cStr = sqlite3_column_text(stmt, 0)
         else { return nil }
 
@@ -107,6 +135,7 @@ public class DictionaryStore {
                 results.append((word, frequency))
             }
         }
+        if let stmt = stmt { recordExecution(of: stmt) }
         return results
     }
 
@@ -135,6 +164,7 @@ public class DictionaryStore {
                 results.append(String(cString: cStr))
             }
         }
+        recordExecution(of: stmt)
         return results
     }
 }
