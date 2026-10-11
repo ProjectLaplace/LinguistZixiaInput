@@ -1134,12 +1134,24 @@ public class PinyinEngine {
             }
         }
 
-        // 候选词：优先整串匹配
-        updateCandidatesWholeString(defaultSyllables: defaultSyllables, remainder: remainder)
+        // 候选词：优先整串匹配。本次组词结果交给候选生成复用，避免同一输入串组词两次。
+        updateCandidatesWholeString(
+            defaultSyllables: defaultSyllables, remainder: remainder,
+            composed: ComposedInput(input: cleanPinyin, result: convResult))
+    }
+
+    /// 已对某个输入串完成的 Conversion 组词（结果可为 nil，表示组不出词）。
+    /// 仅在同一次按键内传递，避免对同一输入串重复组词。
+    private struct ComposedInput {
+        let input: String
+        let result: ConversionResult?
     }
 
     /// 更新候选词：精确匹配 → Conversion 组词 → 首段补充候选 → 前缀 → 末段 fallback
-    private func updateCandidatesWholeString(defaultSyllables: [String], remainder: String) {
+    /// - Parameter composed: 本次按键已完成的组词；输入串与本函数待组词的串相同时直接复用
+    private func updateCandidatesWholeString(
+        defaultSyllables: [String], remainder: String, composed: ComposedInput? = nil
+    ) {
         let _ucStart = CFAbsoluteTimeGetCurrent()
         let store = (currentMode == .pinyin) ? zhStore : jaStore
 
@@ -1193,7 +1205,10 @@ public class PinyinEngine {
             && (remainder.isEmpty || remainderIsBareInitial)
         var convResult: ConversionResult? = nil
         if shouldRunConversion {
-            convResult = unifiedCompose(cleanPinyin, store: store)
+            convResult =
+                composed?.input == cleanPinyin
+                ? composed?.result
+                : unifiedCompose(cleanPinyin, store: store)
             if let composed = convResult {
                 result.append(composed.text)
             }
