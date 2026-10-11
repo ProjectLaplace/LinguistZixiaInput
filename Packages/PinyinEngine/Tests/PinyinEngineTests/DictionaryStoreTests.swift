@@ -72,4 +72,37 @@ final class DictionaryStoreTests: XCTestCase {
         XCTAssertTrue(store.hasEntry(withPrefix: "shij"))
         XCTAssertFalse(store.hasEntry(withPrefix: "shijianq"))
     }
+
+    // MARK: - 查询结果缓存
+
+    func testRepeatedTopCandidateLookupRunsOneStatement() {
+        let first = store.topCandidate(for: "shijian")
+        let second = store.topCandidate(for: "shijian")
+
+        XCTAssertEqual(first?.word, second?.word)
+        XCTAssertEqual(store.stats.statements, 1)
+    }
+
+    func testMissedTopCandidateLookupIsCachedToo() {
+        XCTAssertNil(store.topCandidate(for: "qqq"))
+        XCTAssertNil(store.topCandidate(for: "qqq"))
+        XCTAssertEqual(store.stats.statements, 1)
+    }
+
+    func testRepeatedPrefixChecksRunOneStatementEach() {
+        _ = store.hasLongerEntry(startingWith: "kaifa")
+        _ = store.hasLongerEntry(startingWith: "kaifa")
+        _ = store.hasEntry(withPrefix: "shij")
+        _ = store.hasEntry(withPrefix: "shij")
+        XCTAssertEqual(store.stats.statements, 2)
+    }
+
+    func testLookupCacheStaysWithinCapacity() {
+        let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
+        let small = DictionaryStore(path: zhPath, lookupCacheCapacity: 2)!
+        for pinyin in ["shi", "jian", "kai", "fa", "ji", "shu", "ren", "gong"] {
+            _ = small.topCandidate(for: pinyin)
+        }
+        XCTAssertLessThanOrEqual(small.cachedLookupCount, 4)
+    }
 }

@@ -23,9 +23,28 @@ public class DictionaryStore {
     /// 自创建或上次 `resetStats()` 以来的累计查询开销
     public private(set) var stats = QueryStats()
 
+    /// 精确查询与前缀存在性检查的结果缓存（含未命中）。词库只读，缓存无需失效；
+    /// 逐键组词时同一拼音会在相邻按键间反复查询，命中缓存即不再执行 SQL。
+    private var topCandidateCache: LookupCache<String, TopCandidate?>
+    private var prefixCache: LookupCache<String, Bool>
+
+    /// 两个缓存当前保存的条目数，供测试检查上限
+    var cachedLookupCount: Int { topCandidateCache.count + prefixCache.count }
+
+    private typealias TopCandidate = (word: String, frequency: Int)
+
+    /// 每个缓存每一代的默认容量。缓存最多保存两代，即每个缓存至多 8192 条，
+    /// 两个缓存合计约 1 MB 量级。
+    public static let defaultLookupCacheCapacity = 4096
+
     /// Open a SQLite dictionary database at the given file path.
-    /// - Parameter path: Absolute path to the .db file
-    public init?(path: String) {
+    /// - Parameters:
+    ///   - path: Absolute path to the .db file
+    ///   - lookupCacheCapacity: 查询结果缓存每一代的容量
+    public init?(path: String, lookupCacheCapacity: Int = defaultLookupCacheCapacity) {
+        topCandidateCache = LookupCache(capacity: lookupCacheCapacity)
+        prefixCache = LookupCache(capacity: lookupCacheCapacity)
+
         guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             return nil
         }
@@ -106,6 +125,13 @@ public class DictionaryStore {
     /// - Parameter pinyin: The pinyin key
     /// - Returns: (word, frequency) tuple, or nil if no match
     public func topCandidate(for pinyin: String) -> (word: String, frequency: Int)? {
+        if let cached = topCandidateCache[pinyin] { return cached }
+        let result = queryTopCandidate(for: pinyin)
+        topCandidateCache[pinyin] = .some(result)
+        return result
+    }
+
+    private func queryTopCandidate(for pinyin: String) -> TopCandidate? {
         guard let stmt = topStmt else { return nil }
 
         sqlite3_reset(stmt)
@@ -200,6 +226,15 @@ public class DictionaryStore {
     }
 
     private func hasEntry(inRange lower: String, _ upper: String) -> Bool {
+        // 区间由下界与上界唯一确定，而上界由前缀推出，故以「下界|上界」为键
+        let key = lower + "|" + upper
+        if let cached = prefixCache[key] { return cached }
+        let found = queryEntryExists(inRange: lower, upper)
+        prefixCache[key] = found
+        return found
+    }
+
+    private func queryEntryExists(inRange lower: String, _ upper: String) -> Bool {
         guard let stmt = rangeExistsStmt else { return true }
 
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -245,5 +280,41 @@ public class DictionaryStore {
         }
         recordExecution(of: stmt)
         return results
+    }
+}
+
+/// 有上限的查询结果缓存，按两代淘汰：查找先查当前代，再查上一代并提升到当前代；
+/// 当前代写满时整体降为上一代，原上一代丢弃。条目总数不超过两倍容量，
+/// 近期反复使用的条目始终留在缓存中，效果近似 LRU 而无需维护访问顺序。
+struct LookupCache<Key: Hashable, Value> {
+    private let capacity: Int
+    private var current: [Key: Value] = [:]
+    private var previous: [Key: Value] = [:]
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    var count: Int { current.count + previous.count }
+
+    subscript(key: Key) -> Value? {
+        mutating get {
+            if let value = current[key] { return value }
+            guard let value = previous[key] else { return nil }
+            insert(value, for: key)
+            return value
+        }
+        set {
+            guard let value = newValue else { return }
+            insert(value, for: key)
+        }
+    }
+
+    private mutating func insert(_ value: Value, for key: Key) {
+        if current.count >= capacity {
+            previous = current
+            current = [:]
+        }
+        current[key] = value
     }
 }
