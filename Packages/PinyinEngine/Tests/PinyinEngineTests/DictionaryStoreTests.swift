@@ -58,4 +58,18 @@ final class DictionaryStoreTests: XCTestCase {
     func testSingleCharCandidatesRespectLimit() {
         XCTAssertEqual(store.singleCharCandidates(forSyllables: ["shi"], limit: 3).count, 3)
     }
+
+    // MARK: - 前缀存在性
+
+    func testHasLongerEntryDetectsOnlyStrictlyLongerPinyin() {
+        XCTAssertTrue(store.hasLongerEntry(startingWith: "kaifa"))
+        XCTAssertFalse(store.hasLongerEntry(startingWith: "kaifajishu"))
+        XCTAssertFalse(store.hasLongerEntry(startingWith: "shijian"))
+    }
+
+    func testHasEntryWithPrefixIncludesExactMatch() {
+        XCTAssertTrue(store.hasEntry(withPrefix: "shijian"))
+        XCTAssertTrue(store.hasEntry(withPrefix: "shij"))
+        XCTAssertFalse(store.hasEntry(withPrefix: "shijianq"))
+    }
 }

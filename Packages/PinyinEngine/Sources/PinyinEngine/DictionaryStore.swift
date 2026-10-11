@@ -8,6 +8,7 @@ public class DictionaryStore {
     private var queryStmt: OpaquePointer?
     private var prefixStmt: OpaquePointer?
     private var topStmt: OpaquePointer?
+    private var rangeExistsStmt: OpaquePointer?
 
     /// 查询开销的累计计数，供性能测量读取。
     public struct QueryStats: Equatable {
@@ -54,12 +55,19 @@ public class DictionaryStore {
         if sqlite3_prepare_v2(db, topSql, -1, &topStmt, nil) != SQLITE_OK {
             topStmt = nil
         }
+
+        // 区间内是否存在条目：前缀剪枝用，只需索引定位一次
+        let rangeExistsSql = "SELECT 1 FROM entries WHERE pinyin >= ? AND pinyin < ? LIMIT 1"
+        if sqlite3_prepare_v2(db, rangeExistsSql, -1, &rangeExistsStmt, nil) != SQLITE_OK {
+            rangeExistsStmt = nil
+        }
     }
 
     deinit {
         if let queryStmt = queryStmt { sqlite3_finalize(queryStmt) }
         if let prefixStmt = prefixStmt { sqlite3_finalize(prefixStmt) }
         if let topStmt = topStmt { sqlite3_finalize(topStmt) }
+        if let rangeExistsStmt = rangeExistsStmt { sqlite3_finalize(rangeExistsStmt) }
         if let db = db { sqlite3_close(db) }
     }
 
@@ -173,6 +181,41 @@ public class DictionaryStore {
         }
         recordExecution(of: stmt)
         return results
+    }
+
+    /// 是否存在拼音以 `prefix` 开头的条目（含拼音恰为 `prefix` 的条目）。
+    /// 无法判断时（前缀为空或含非 ASCII 字符）返回 true，使调用方不做剪枝。
+    public func hasEntry(withPrefix prefix: String) -> Bool {
+        guard let upper = Self.prefixUpperBound(prefix) else { return true }
+        return hasEntry(inRange: prefix, upper)
+    }
+
+    /// 是否存在拼音以 `prefix` 开头且比 `prefix` 更长的条目。
+    /// Conversion 的 DFS 据此判断累积拼音还能否延伸成任何词条。
+    /// 无法判断时返回 true，使调用方不做剪枝。
+    public func hasLongerEntry(startingWith prefix: String) -> Bool {
+        guard let upper = Self.prefixUpperBound(prefix) else { return true }
+        // 以 prefix 开头的更长拼音均不小于 prefix + "a"（拼音只含小写字母）
+        return hasEntry(inRange: prefix + "a", upper)
+    }
+
+    private func hasEntry(inRange lower: String, _ upper: String) -> Bool {
+        guard let stmt = rangeExistsStmt else { return true }
+
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_reset(stmt)
+        sqlite3_bind_text(stmt, 1, lower, -1, transient)
+        sqlite3_bind_text(stmt, 2, upper, -1, transient)
+
+        let found = sqlite3_step(stmt) == SQLITE_ROW
+        recordExecution(of: stmt)
+        return found
+    }
+
+    /// 前缀区间的上界：末字符加一（`shi` → `shj`）。前缀为空或末字符非 ASCII 时返回 nil。
+    private static func prefixUpperBound(_ prefix: String) -> String? {
+        guard let last = prefix.last, let ascii = last.asciiValue, ascii < 127 else { return nil }
+        return String(prefix.dropLast()) + String(UnicodeScalar(ascii + 1))
     }
 
     /// Look up candidate words whose pinyin starts with the given prefix.

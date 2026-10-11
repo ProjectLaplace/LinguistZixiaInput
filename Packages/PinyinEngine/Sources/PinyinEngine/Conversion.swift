@@ -400,8 +400,11 @@ public enum Conversion {
                     callback(top.word, top.frequency, newSyllables, newPos)
                 }
 
-                // 继续延伸，尝试更长的短语
-                dfs(newPos, newPinyin, newSyllables)
+                // 继续延伸，尝试更长的短语。没有任何词条以 newPinyin 开头且更长时，
+                // 延伸出的拼音都不可能命中词库，整棵子树（含其后的裸声母展开）剪去。
+                if newPos < n && store.hasLongerEntry(startingWith: newPinyin) {
+                    dfs(newPos, newPinyin, newSyllables)
+                }
             }
 
             // 裸声母展开：当前位置无法构成完整音节时，
@@ -429,6 +432,13 @@ public enum Conversion {
                         if PinyinSplitter.validSyllables.contains(combined) {
                             continue
                         }
+                    }
+
+                    // 前缀剪枝：递归内没有词条以「累积拼音 + 声母」开头时，各展开都不会命中，
+                    // 跳过整组展开（仍优先双字母声母，不回退到单字母声母）。
+                    // 顶层的单个声母总有对应单字，不必检查。
+                    if !isTopLevel && !store.hasEntry(withPrefix: accPinyin + initial) {
+                        break
                     }
 
                     let newPos = curPos + initialLen
