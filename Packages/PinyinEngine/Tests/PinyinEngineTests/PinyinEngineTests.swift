@@ -1121,7 +1121,7 @@ final class PinyinEngineTests: XCTestCase {
 
     // MARK: - Mixed Buffer Candidate Structure (混输候选区结构)
     //
-    // 候选区结构对齐纯拼音模式：pos 1 为整句、pos 2+ 为首拼音段备选。
+    // 候选区结构与纯拼音模式一致：pos 1 为整句、pos 2+ 为首拼音段备选。
     // fixture 词典中 xianzai → 「现在」「西安」，pengyou → 「朋友」。
     // 测试 expected 候选基于 fixture 实际产出，不是产品级词典预期。
 

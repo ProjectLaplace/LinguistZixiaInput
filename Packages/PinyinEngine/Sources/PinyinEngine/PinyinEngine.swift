@@ -599,7 +599,7 @@ public class PinyinEngine {
     ///
     /// 大写字母（含 Caps Lock 触发）被聚合为字面块嵌入整句组词流程，
     /// 不参与拼音切分但保留在最终候选字符串里。
-    /// 字面块与拼音段在中英边界自动加空格，与 macOS 系统拼音的混输行为对齐。
+    /// 字面块与拼音段在中英边界自动加空格，与 macOS 系统拼音的混输行为一致。
     private func handleLetter(_ char: Character) {
         // 分段模式切换：在 Buffer 为空或处于段落边界（刚定完字）时，小写 'i' 作为开关。
         // 大写 I 必须走字面块路径，不应触发日文 transient 模式。
@@ -656,7 +656,7 @@ public class PinyinEngine {
     }
 
     /// 把所有 `rawSpans` 按原始字符顺序拼接成单一字符串（含字面块大写、拼音小写、撇号等原样）。
-    /// 仅用于 customPhrase 前缀查询；拼音切分链路另有 `rawPinyin` 视图。
+    /// 仅用于 customPhrase 前缀查询；拼音切分流程另有 `rawPinyin` 视图。
     private func rawSpansConcatenated() -> String {
         rawSpans.map { span -> String in
             switch span {
@@ -795,7 +795,7 @@ public class PinyinEngine {
 
     /// 混输态选中首拼音段备选：把首段译文确认进预编辑文本（`composingItems`），
     /// 继续基于剩余 spans 组词；不直接提交到宿主文档。与纯拼音模式选 pos 2+
-    /// 走 `confirmFirstSegment` 的语义保持一致 —— 用户视角下都是先在 marked text
+    /// 走 `confirmFirstSegment` 的语义保持一致：用户视角下都是先在 marked text
     /// 内累积已确认部分，待整体确认（空格 / 数字选 pos 1 / Enter）时再一并提交，
     /// 从而保证最终 commit 字符串能够按完整边界规则（含中↔拉空格）整体处理。
     ///
@@ -896,7 +896,7 @@ public class PinyinEngine {
     /// 已确认 `.text`（按原顺序追加到预编辑文本前缀），再对该首拼音段按 `[` / `]`
     /// 取首选的首字或末字，整段消耗后亦以 `.text` 追加。
     ///
-    /// 字面块在混输输入中天然构成词边界，故每个拼音段都是独立的「词」单位 ——
+    /// 字面块在混输输入中天然构成词边界，故每个拼音段都是独立的「词」单位，
     /// 不论 `[` 还是 `]` 都以「首拼音段」为对象，二者的差异仅在于从该段首选
     /// 汉字串里选首字还是末字。
     ///
@@ -1473,7 +1473,7 @@ public class PinyinEngine {
     }
 
     /// 为单一拼音段（混输态首段）生成备选列表：精确匹配 + Conversion 整词 + 首音节单字。
-    /// 精简版本，与 `updateCandidatesWholeString` 中的同构逻辑对齐，但不耦合 partial 登记、
+    /// 精简版本，与 `updateCandidatesWholeString` 中的同构逻辑保持一致，但不耦合 partial 登记、
     /// 用户词典、自定义短语、固顶字等纯拼音路径专属机制。
     private func generateFirstSpanCandidates(forRaw raw: String, store: DictionaryStore?)
         -> [String]

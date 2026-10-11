@@ -210,7 +210,7 @@ public class DictionaryStore {
     }
 
     /// 是否存在拼音以 `prefix` 开头的条目（含拼音恰为 `prefix` 的条目）。
-    /// 无法判断时（前缀为空或含非 ASCII 字符）返回 true，使调用方不做剪枝。
+    /// 无法判断时（前缀为空或末字符非 ASCII）返回 true，使调用方不做剪枝。
     public func hasEntry(withPrefix prefix: String) -> Bool {
         guard let upper = Self.prefixUpperBound(prefix) else { return true }
         return hasEntry(inRange: prefix, upper)
