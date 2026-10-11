@@ -9,6 +9,7 @@ public class DictionaryStore {
     private var prefixStmt: OpaquePointer?
     private var topStmt: OpaquePointer?
     private var rangeExistsStmt: OpaquePointer?
+    private var abbreviationRangeStmt: OpaquePointer?
 
     /// 查询开销的累计计数，供性能测量读取。
     public struct QueryStats: Equatable {
@@ -31,19 +32,34 @@ public class DictionaryStore {
     /// 两个缓存当前保存的条目数，供测试检查上限
     var cachedLookupCount: Int { topCandidateCache.count + prefixCache.count }
 
+    /// 简拼候选词条，以起始两个单元为键（如 `r|g`）。同一键下更长的简拼串只在缓存中过滤。
+    private var abbreviationCache: LookupCache<String, [AbbreviationEntry]>
+
+    /// 简拼缓存当前保存的键数，供测试检查上限
+    var cachedAbbreviationKeyCount: Int { abbreviationCache.count }
+
     private typealias TopCandidate = (word: String, frequency: Int)
 
     /// 每个缓存每一代的默认容量。缓存最多保存两代，即每个缓存至多 8192 条，
     /// 两个缓存合计约 1 MB 量级。
     public static let defaultLookupCacheCapacity = 4096
 
+    /// 简拼缓存每一代的默认键数。每个键保存一对起始单元下的词条（生产词库中位数约 1700 条、
+    /// 最多约 7000 条），两代合计至多 32 个键。
+    public static let defaultAbbreviationCacheCapacity = 16
+
     /// Open a SQLite dictionary database at the given file path.
     /// - Parameters:
     ///   - path: Absolute path to the .db file
     ///   - lookupCacheCapacity: 查询结果缓存每一代的容量
-    public init?(path: String, lookupCacheCapacity: Int = defaultLookupCacheCapacity) {
+    ///   - abbreviationCacheCapacity: 简拼缓存每一代的键数
+    public init?(
+        path: String, lookupCacheCapacity: Int = defaultLookupCacheCapacity,
+        abbreviationCacheCapacity: Int = defaultAbbreviationCacheCapacity
+    ) {
         topCandidateCache = LookupCache(capacity: lookupCacheCapacity)
         prefixCache = LookupCache(capacity: lookupCacheCapacity)
+        abbreviationCache = LookupCache(capacity: abbreviationCacheCapacity)
 
         guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             return nil
@@ -80,6 +96,16 @@ public class DictionaryStore {
         if sqlite3_prepare_v2(db, rangeExistsSql, -1, &rangeExistsStmt, nil) != SQLITE_OK {
             rangeExistsStmt = nil
         }
+
+        // 简拼候选：前缀区间内的多字词条
+        let abbreviationRangeSql =
+            "SELECT pinyin, word, frequency FROM entries "
+            + "WHERE pinyin >= ? AND pinyin < ? AND length(word) BETWEEN 2 AND ?"
+        if sqlite3_prepare_v2(db, abbreviationRangeSql, -1, &abbreviationRangeStmt, nil)
+            != SQLITE_OK
+        {
+            abbreviationRangeStmt = nil
+        }
     }
 
     deinit {
@@ -87,6 +113,9 @@ public class DictionaryStore {
         if let prefixStmt = prefixStmt { sqlite3_finalize(prefixStmt) }
         if let topStmt = topStmt { sqlite3_finalize(topStmt) }
         if let rangeExistsStmt = rangeExistsStmt { sqlite3_finalize(rangeExistsStmt) }
+        if let abbreviationRangeStmt = abbreviationRangeStmt {
+            sqlite3_finalize(abbreviationRangeStmt)
+        }
         if let db = db { sqlite3_close(db) }
     }
 
@@ -245,6 +274,69 @@ public class DictionaryStore {
         let found = sqlite3_step(stmt) == SQLITE_ROW
         recordExecution(of: stmt)
         return found
+    }
+
+    // MARK: - 简拼
+
+    /// 与一串简拼单元恰好匹配的词条（音节数等于单元数），按词频降序。
+    /// 规则见 `Abbreviation`。单元少于两个时返回空数组。
+    public func abbreviationMatches(units: [String]) -> [AbbreviationEntry] {
+        guard units.count >= 2 else { return [] }
+        return abbreviationEntries(firstUnit: units[0], secondUnit: units[1])
+            .filter {
+                $0.syllables.count == units.count
+                    && Abbreviation.syllables($0.syllables, match: units[...])
+            }
+    }
+
+    /// 首音节以 `firstUnit` 开头、次音节以 `secondUnit` 开头的全部多字词条，按词频降序。
+    /// 同一对单元只查询词库一次，此后从缓存返回。
+    public func abbreviationEntries(firstUnit: String, secondUnit: String) -> [AbbreviationEntry] {
+        let key = firstUnit + "|" + secondUnit
+        if let cached = abbreviationCache[key] { return cached }
+
+        var entries: [AbbreviationEntry] = []
+        for prefix in Abbreviation.rangePrefixes(firstUnit: firstUnit, secondUnit: secondUnit) {
+            for row in queryMultiCharEntries(withPrefix: prefix) {
+                for syllables in Abbreviation.splits(
+                    of: row.pinyin, into: row.word.count, leadingUnits: [firstUnit, secondUnit])
+                {
+                    entries.append(
+                        AbbreviationEntry(
+                            word: row.word, pinyin: row.pinyin, frequency: row.frequency,
+                            syllables: syllables))
+                }
+            }
+        }
+        entries.sort { $0.frequency > $1.frequency }
+        abbreviationCache[key] = entries
+        return entries
+    }
+
+    private func queryMultiCharEntries(withPrefix prefix: String) -> [(
+        pinyin: String, word: String, frequency: Int
+    )] {
+        guard let stmt = abbreviationRangeStmt, let upper = Self.prefixUpperBound(prefix) else {
+            return []
+        }
+
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_reset(stmt)
+        sqlite3_bind_text(stmt, 1, prefix, -1, transient)
+        sqlite3_bind_text(stmt, 2, upper, -1, transient)
+        sqlite3_bind_int(stmt, 3, Int32(Abbreviation.maxSyllables))
+
+        var rows: [(pinyin: String, word: String, frequency: Int)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let pinyin = sqlite3_column_text(stmt, 0),
+                let word = sqlite3_column_text(stmt, 1)
+            else { continue }
+            rows.append(
+                (String(cString: pinyin), String(cString: word), Int(sqlite3_column_int64(stmt, 2)))
+            )
+        }
+        recordExecution(of: stmt)
+        return rows
     }
 
     /// 前缀区间的上界：末字符加一（`shi` → `shj`）。前缀为空或末字符非 ASCII 时返回 nil。
