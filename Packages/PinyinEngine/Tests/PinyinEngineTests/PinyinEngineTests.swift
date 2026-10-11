@@ -694,6 +694,21 @@ final class PinyinEngineTests: XCTestCase {
         XCTAssertEqual(state.committedText, "想法")
     }
 
+    // MARK: - 单个声母的候选
+
+    /// 单个声母（含 y、w 与双字母声母）的单字候选，首页须与按前缀扫描全部条目所得一致。
+    func testLoneInitialCandidatesKeepPrefixScanOrder() {
+        for initial in ["b", "s", "z", "c", "j", "y", "w", "zh", "sh"] {
+            engine.process(.esc)
+            let state = type(initial)
+            let store = engine.zhDictionary!
+            let scanned = store.candidatesWithPrefix(initial, limit: 100).filter { $0.count == 1 }
+            XCTAssertEqual(
+                Array(state.candidates.prefix(scanned.count)), scanned, "initial \(initial)")
+            XCTAssertTrue(state.candidates.allSatisfy { $0.count == 1 }, "initial \(initial)")
+        }
+    }
+
     // MARK: - ü Alternative Spelling (u 代替 ü)
 
     func testUAsUmlautForLue() {

@@ -1275,13 +1275,10 @@ public class PinyinEngine {
         //    单字限制：仅当无完整音节时（纯声母如 b/d），限制为单字，
         //    防止声母前缀匹配出「版权」等词；有完整音节时（如 xiangf）不限制。
         if result.isEmpty && (!remainder.isEmpty || defaultSyllables.count == 1) {
-            // 纯声母时加大 limit，因为后续会过滤掉多字词只留单字
-            let prefixLimit = defaultSyllables.isEmpty ? 100 : 9
-            let prefixResults = store?.candidatesWithPrefix(cleanPinyin, limit: prefixLimit) ?? []
             result =
                 defaultSyllables.isEmpty
-                ? prefixResults.filter { $0.count == 1 }
-                : prefixResults
+                ? loneInitialSingleChars(cleanPinyin, store: store)
+                : store?.candidatesWithPrefix(cleanPinyin, limit: 9) ?? []
         }
 
         // 7. 如果仍然没有，尝试最后一个活跃段的候选
@@ -1337,6 +1334,19 @@ public class PinyinEngine {
             Profiler.event(
                 "updateCandidates(\(rawPinyin)): \(String(format: "%.1f", _ucElapsed))ms")
         }
+    }
+
+    /// 纯声母（含 `y`、`w`）输入的单字候选：取以该串开头的全部音节下的单字，按词频降序。
+    /// 不用前缀范围查询，因为它须扫描并排序该声母下的全部条目；没有任何音节以该串开头时
+    /// （如孤立的 `v`）仍按前缀查询。
+    private func loneInitialSingleChars(_ prefix: String, store: DictionaryStore?) -> [String] {
+        let limit = 100
+        let syllables = PinyinSplitter.syllables(withPrefix: prefix)
+        let chars =
+            syllables.isEmpty
+            ? store?.candidatesWithPrefix(prefix, limit: limit) ?? []
+            : store?.singleCharCandidates(forSyllables: syllables, limit: limit) ?? []
+        return chars.filter { $0.count == 1 }
     }
 
     /// 混输重建：按 rawSpans 顺序对各拼音段单独 compose，字面块原样嵌入。

@@ -115,6 +115,13 @@ public enum PinyinSplitter {
         "z", "c", "s",
     ]
 
+    /// 以 `prefix` 开头的全部合法音节，按字母序排列。
+    /// 与 `syllablesForInitial` 不同，此处按字面前缀取：`s` 同时得到 `si` 与 `shi`，
+    /// `y`、`w` 也有结果；用于查询单个声母（或首字母）对应的全部单字。
+    static func syllables(withPrefix prefix: String) -> [String] {
+        validSyllables.filter { $0.hasPrefix(prefix) }.sorted()
+    }
+
     /// 声母→合法音节列表映射，用于 Conversion 中裸声母展开。
     /// 每个音节归属于其最长匹配声母（如 chi 归 ch，ci 归 c）。
     static let syllablesForInitial: [String: [String]] = {

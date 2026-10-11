@@ -149,4 +149,24 @@ final class PinyinSplitterTests: XCTestCase {
         XCTAssertEqual(result.syllables, ["ch", "z"])
         XCTAssertEqual(result.remainder, "b")
     }
+
+    // MARK: - 前缀音节
+
+    func testSyllablesWithPrefixIncludeDigraphInitialSyllables() {
+        let syllables = PinyinSplitter.syllables(withPrefix: "s")
+        XCTAssertTrue(syllables.contains("si"))
+        XCTAssertTrue(syllables.contains("shi"))
+        XCTAssertTrue(syllables.allSatisfy { $0.hasPrefix("s") })
+    }
+
+    func testSyllablesWithDigraphPrefixExcludeSingleLetterInitial() {
+        let syllables = PinyinSplitter.syllables(withPrefix: "zh")
+        XCTAssertTrue(syllables.contains("zhi"))
+        XCTAssertFalse(syllables.contains("zi"))
+    }
+
+    func testSyllablesWithPrefixCoverYAndW() {
+        XCTAssertTrue(PinyinSplitter.syllables(withPrefix: "y").contains("yi"))
+        XCTAssertTrue(PinyinSplitter.syllables(withPrefix: "w").contains("wo"))
+    }
 }

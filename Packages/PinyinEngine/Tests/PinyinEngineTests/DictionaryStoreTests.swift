@@ -43,4 +43,19 @@ final class DictionaryStoreTests: XCTestCase {
 
         XCTAssertGreaterThan(engine.zhDictionary?.stats.statements ?? 0, 0)
     }
+
+    // MARK: - 指定音节的单字候选
+
+    func testSingleCharCandidatesCoverAllGivenSyllablesInOneStatement() {
+        let chars = store.singleCharCandidates(forSyllables: ["shi", "shu"], limit: 100)
+
+        XCTAssertTrue(chars.contains("是"))
+        XCTAssertTrue(chars.contains("书"))
+        XCTAssertTrue(chars.allSatisfy { $0.count == 1 })
+        XCTAssertEqual(store.stats.statements, 1)
+    }
+
+    func testSingleCharCandidatesRespectLimit() {
+        XCTAssertEqual(store.singleCharCandidates(forSyllables: ["shi"], limit: 3).count, 3)
+    }
 }

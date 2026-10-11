@@ -139,6 +139,42 @@ public class DictionaryStore {
         return results
     }
 
+    /// 一组音节下的单字候选，按词频降序。
+    ///
+    /// 单个声母的候选若用前缀范围查询，须扫描并排序该声母下的全部条目（`j` 开头约 5.8 万行）；
+    /// 按音节精确查询只读取单字所在的少量条目。音节数随调用变化，故每次单独编译语句。
+    /// - Parameters:
+    ///   - syllables: 待查询的音节（如 `["shi", "shu"]`）
+    ///   - limit: 返回的最大条数
+    public func singleCharCandidates(forSyllables syllables: [String], limit: Int) -> [String] {
+        guard let db = db, !syllables.isEmpty else { return [] }
+
+        let placeholders = Array(repeating: "?", count: syllables.count).joined(separator: ",")
+        let sql =
+            "SELECT word FROM entries WHERE pinyin IN (\(placeholders)) AND length(word) = 1 "
+            + "ORDER BY frequency DESC LIMIT ?"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt = stmt else {
+            return []
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (index, syllable) in syllables.enumerated() {
+            sqlite3_bind_text(stmt, Int32(index + 1), syllable, -1, transient)
+        }
+        sqlite3_bind_int(stmt, Int32(syllables.count + 1), Int32(limit))
+
+        var results: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let cStr = sqlite3_column_text(stmt, 0) {
+                results.append(String(cString: cStr))
+            }
+        }
+        recordExecution(of: stmt)
+        return results
+    }
+
     /// Look up candidate words whose pinyin starts with the given prefix.
     /// Uses range query (>= prefix, < prefix+1) to leverage the B-tree index.
     /// - Parameters:
