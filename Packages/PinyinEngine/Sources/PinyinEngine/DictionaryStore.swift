@@ -48,7 +48,7 @@ public class DictionaryStore {
     public static let defaultLookupCacheCapacity = 4096
 
     /// 简拼缓存每一代的默认键数。每个键保存一对起始单元下的行（生产词库中位数约 1900 行、
-    /// 最多约 7500 行，每行约 100 字节），两代合计至多 32 个键，最坏约 20 MB、通常约 6 MB。
+    /// 最多约 7500 行，每行约 100 字节），两代合计至多 32 个键，最坏约 24 MB、通常约 6 MB。
     public static let defaultAbbreviationCacheCapacity = 16
 
     /// Open a SQLite dictionary database at the given file path.
@@ -100,7 +100,6 @@ public class DictionaryStore {
         if sqlite3_prepare_v2(db, rangeExistsSql, -1, &rangeExistsStmt, nil) != SQLITE_OK {
             rangeExistsStmt = nil
         }
-
     }
 
     deinit {
