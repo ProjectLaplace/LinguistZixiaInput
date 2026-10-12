@@ -198,4 +198,27 @@ final class PinnedWordIntegrationTests: XCTestCase {
 
         XCTAssertEqual(state.committedText, "开技")
     }
+
+    // MARK: - 简拼组词登记词条自身的拼音
+
+    /// 经简拼两步组词（jsrgzn：先选首段的另一个词，再选人工智能），固顶词登记的是
+    /// 组合词自身的完整拼音，而不是键入的字母
+    func testAbbreviationComposedWordIsPinnedUnderItsOwnPinyin() {
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let engine = makeEngine(pinnedWords: pinned)
+
+        let state = type(engine, "jsrgzn")
+        let composed = state.candidates.first ?? ""
+        let (other, otherPinyin) = composed.hasPrefix("技术") ? ("计算", "jisuan") : ("技术", "jishu")
+        guard let index = state.candidates.firstIndex(of: other), index < 9 else {
+            return XCTFail("\(other) 不在首页：\(state.candidates.prefix(9))")
+        }
+        _ = engine.process(.number(index + 1))
+        let committed = engine.process(.space)
+
+        XCTAssertEqual(committed.committedText, other + "人工智能")
+        XCTAssertEqual(
+            pinned.pinned(for: otherPinyin + "rengongzhineng"), [other + "人工智能"])
+        XCTAssertEqual(pinned.pinned(for: "jsrgzn"), [])
+    }
 }

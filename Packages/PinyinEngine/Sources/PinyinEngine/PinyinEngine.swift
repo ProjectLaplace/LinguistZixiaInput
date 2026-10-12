@@ -220,6 +220,7 @@ public class PinyinEngine {
         didSet {
             activeCandidateIndex = 0
             partialConsumedPinyin = [:]
+            candidateReadings = [:]
             mixedFirstSpanCandidates = []
             mixedFirstLiteralCandidates = []
         }
@@ -272,6 +273,11 @@ public class PinyinEngine {
     /// 未登记的候选默认覆盖整串拼音，被选中时进入 `finalizeAllPinyin`；
     /// 已登记的候选被选中时进入 `confirmFirstSegment`，按记录的拼音段截除 rawPinyin 后继续组词。
     private var partialConsumedPinyin: [String: String] = [:]
+
+    /// 候选文本到它自身的完整拼音，只登记来自简拼匹配的候选（含含简拼段的组词结果）。
+    /// 简拼候选消耗的是键入的字母（`partialConsumedPinyin` 仍登记字母，以便截除输入），
+    /// 组词轨迹则据此登记词条自身的读音，使组合词以 `jishu` 而非 `js` 记入固顶词。
+    private var candidateReadings: [String: String] = [:]
 
     /// 混输态首拼音段备选集合：登记 `rebuildMixedComposition` 为首拼音段产出的候选文本。
     /// 选中时走 `confirmMixedFirstSpanIntoComposingText`，把首拼音段译文确认进
@@ -1201,6 +1207,9 @@ public class PinyinEngine {
             result = applyPinnedWords(for: cleanPinyin, to: result)
         }
 
+        // 简拼候选的自身拼音登记表，见 `candidateReadings`
+        var readings: [String: String] = [:]
+
         // 4. 有精确匹配时跳过 Conversion；无精确匹配时用 Conversion 组词
         //    触发条件：多音节且无精确匹配。remainder 为裸声母时也触发（如 gangcd → gang+c, remainder=d）；
         //    输入末尾为简拼串时也触发（js、zryy：y、w 不是声母，PinyinSplitter 视其为残留尾段）
@@ -1218,6 +1227,9 @@ public class PinyinEngine {
                 : unifiedCompose(cleanPinyin, store: store)
             if let composed = convResult {
                 result.append(composed.text)
+                if let reading = Self.abbreviationAwareReading(of: composed) {
+                    readings[composed.text] = reading
+                }
             }
         }
 
@@ -1244,7 +1256,7 @@ public class PinyinEngine {
             convResult?.abbreviationReadings.first.map { $0 != nil } ?? false
         appendAbbreviationCandidates(
             cleanPinyin: cleanPinyin, conversion: convResult, store: store,
-            to: &result, partial: &partial)
+            to: &result, partial: &partial, readings: &readings)
 
         // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
         //    追加该拼音的其他候选，方便用户快速替换首词继续组词。首段为简拼段时已由 4c 处理。
@@ -1364,6 +1376,7 @@ public class PinyinEngine {
 
         candidates = result
         partialConsumedPinyin = partial
+        candidateReadings = readings
 
         let _ucElapsed = (CFAbsoluteTimeGetCurrent() - _ucStart) * 1000
         Profiler.record(
@@ -1383,7 +1396,8 @@ public class PinyinEngine {
     /// 3. 整串为简拼且已有候选时，首字母的单字（部分方案，只消耗首字母）。
     private func appendAbbreviationCandidates(
         cleanPinyin: String, conversion: ConversionResult?, store: DictionaryStore?,
-        to result: inout [String], partial: inout [String: String]
+        to result: inout [String], partial: inout [String: String],
+        readings: inout [String: String]
     ) {
         guard currentMode == .pinyin, let store = store else { return }
         let units = Abbreviation.units(in: Array(cleanPinyin), from: 0)
@@ -1399,10 +1413,18 @@ public class PinyinEngine {
             }
         }
 
+        func append(_ matches: [AbbreviationEntry], consuming consumed: String?) {
+            let existing = Set(result)
+            for match in matches where !existing.contains(match.word) {
+                readings[match.word] = match.pinyin
+            }
+            append(matches.map(\.word), consuming: consumed)
+        }
+
         if isWholeAbbreviation {
             let matches = store.abbreviationMatches(
                 units: units, limit: Self.abbreviationAlternativeLimit)
-            append(matches.map(\.word), consuming: nil)
+            append(matches, consuming: nil)
         }
 
         if let conversion = conversion,
@@ -1412,13 +1434,22 @@ public class PinyinEngine {
             let firstUnits = Abbreviation.units(in: Array(first.pinyin), from: 0)
             let matches = store.abbreviationMatches(
                 units: firstUnits, limit: Self.abbreviationAlternativeLimit)
-            append(matches.map(\.word), consuming: first.pinyin)
+            append(matches, consuming: first.pinyin)
         }
 
         // 没有任何词与这串字母匹配时（如 xyz）不补单字，保留「无候选时空格提交原文」
         if isWholeAbbreviation && !result.isEmpty {
             append(loneInitialSingleChars(units[0], store: store), consuming: units[0])
         }
+    }
+
+    /// 含简拼段的组词结果自身的拼音：简拼段取词条的完整拼音，其余段取段拼音。
+    /// 不含简拼段时返回 nil，沿用原有的登记方式。
+    private static func abbreviationAwareReading(of conversion: ConversionResult) -> String? {
+        guard conversion.abbreviationReadings.contains(where: { $0 != nil }) else { return nil }
+        return zip(conversion.segments, conversion.abbreviationReadings)
+            .map { $1 ?? $0.pinyin }
+            .joined()
     }
 
     /// 纯声母（含 `y`、`w`）输入的单字候选：取以该串开头的全部音节下的单字，按词频降序。
@@ -1640,6 +1671,7 @@ public class PinyinEngine {
     private func finalizeAllPinyin(with text: String, pinyin: String? = nil) {
         let ownPinyin =
             pinyin
+            ?? candidateReadings[text]
             ?? Self.normalizePinyin(rawPinyin.lowercased().replacingOccurrences(of: "'", with: ""))
         recordComposeStep(text: text, pinyin: ownPinyin)
 
@@ -1726,7 +1758,7 @@ public class PinyinEngine {
 
         let remainingNormalized = String(normalizedRaw.dropFirst(consumedPinyin.count))
 
-        recordComposeStep(text: text, pinyin: consumedPinyin)
+        recordComposeStep(text: text, pinyin: candidateReadings[text] ?? consumedPinyin)
 
         // 重建：confirmed text + 剩余拼音继续组词
         let confirmedPrefix = composingItems.filter { !$0.isEditable }
