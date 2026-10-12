@@ -1238,9 +1238,19 @@ public class PinyinEngine {
             partial[firstWord.text] = firstWord.pinyin
         }
 
+        // 4c. 简拼候选：整串为简拼时列出与整串匹配的其他词；首段为简拼段时列出与首段字母
+        //     匹配的其他词（部分方案）；整串为简拼时最后列出首字母的单字（部分方案）。
+        let firstSegmentIsAbbreviation =
+            convResult?.abbreviationReadings.first.map { $0 != nil } ?? false
+        appendAbbreviationCandidates(
+            cleanPinyin: cleanPinyin, conversion: convResult, store: store,
+            to: &result, partial: &partial)
+
         // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
-        //    追加该拼音的其他候选，方便用户快速替换首词继续组词
-        if (remainder.isEmpty || remainderIsBareInitial) && defaultSyllables.count > 1 {
+        //    追加该拼音的其他候选，方便用户快速替换首词继续组词。首段为简拼段时已由 4c 处理。
+        if (remainder.isEmpty || remainderIsBareInitial) && defaultSyllables.count > 1
+            && !firstSegmentIsAbbreviation
+        {
             // 确定首段拼音：优先用 Conversion 结果的第一个词对应的音节
             let firstPinyin: String
             if let conv = convResult, !conv.segments.isEmpty {
@@ -1250,9 +1260,15 @@ public class PinyinEngine {
                 firstPinyin = Self.normalizePinyin(defaultSyllables[0])
             }
 
-            // 精确匹配优先；无结果时 fallback 到前缀匹配（裸声母缩写场景）
+            // 精确匹配优先；无结果时 fallback 到前缀匹配（裸声母缩写场景）。
+            // 首段是单个裸声母的单字时，按音节取单字，避免对该声母的全部条目做范围扫描。
             var firstSegCandidates = store?.candidates(for: firstPinyin) ?? []
-            if firstSegCandidates.isEmpty {
+            if firstSegCandidates.isEmpty,
+                convResult?.segments.first?.word.count == 1,
+                !PinyinSplitter.syllables(withPrefix: firstPinyin).isEmpty
+            {
+                firstSegCandidates = loneInitialSingleChars(firstPinyin, store: store)
+            } else if firstSegCandidates.isEmpty {
                 firstSegCandidates = store?.candidatesWithPrefix(firstPinyin) ?? []
                 // 前缀匹配时限制字数与 Conversion 首段一致，避免引入不相关的长词
                 if let conv = convResult, !conv.segments.isEmpty {
@@ -1355,6 +1371,53 @@ public class PinyinEngine {
         if _ucElapsed >= Profiler.thresholdMs {
             Profiler.event(
                 "updateCandidates(\(rawPinyin)): \(String(format: "%.1f", _ucElapsed))ms")
+        }
+    }
+
+    /// 简拼输入的候选上限：与整串或首段匹配的其他词各至多列出这么多条
+    private static let abbreviationAlternativeLimit = 30
+
+    /// 简拼候选（参见 Conversion.md「简拼段」）。依次追加，跳过已在候选中的文本：
+    /// 1. 整串为简拼时，与整串匹配的其他词，按词频降序（整串方案）；
+    /// 2. Conversion 首段为简拼段且不覆盖整串时，与首段字母匹配的其他词（部分方案，消耗首段字母）；
+    /// 3. 整串为简拼且已有候选时，首字母的单字（部分方案，只消耗首字母）。
+    private func appendAbbreviationCandidates(
+        cleanPinyin: String, conversion: ConversionResult?, store: DictionaryStore?,
+        to result: inout [String], partial: inout [String: String]
+    ) {
+        guard currentMode == .pinyin, let store = store else { return }
+        let units = Abbreviation.units(in: Array(cleanPinyin), from: 0)
+        let isWholeAbbreviation =
+            units.count >= 2 && units.reduce(0) { $0 + $1.count } == cleanPinyin.count
+
+        func append(_ texts: [String], consuming consumed: String?) {
+            var existing = Set(result)
+            for text in texts where !existing.contains(text) {
+                existing.insert(text)
+                result.append(text)
+                if let consumed = consumed { partial[text] = consumed }
+            }
+        }
+
+        if isWholeAbbreviation {
+            let matches = store.abbreviationMatches(
+                units: units, limit: Self.abbreviationAlternativeLimit)
+            append(matches.map(\.word), consuming: nil)
+        }
+
+        if let conversion = conversion,
+            conversion.abbreviationReadings.first.map({ $0 != nil }) == true,
+            let first = conversion.segments.first, first.pinyin != cleanPinyin
+        {
+            let firstUnits = Abbreviation.units(in: Array(first.pinyin), from: 0)
+            let matches = store.abbreviationMatches(
+                units: firstUnits, limit: Self.abbreviationAlternativeLimit)
+            append(matches.map(\.word), consuming: first.pinyin)
+        }
+
+        // 没有任何词与这串字母匹配时（如 xyz）不补单字，保留「无候选时空格提交原文」
+        if isWholeAbbreviation && !result.isEmpty {
+            append(loneInitialSingleChars(units[0], store: store), consuming: units[0])
         }
     }
 

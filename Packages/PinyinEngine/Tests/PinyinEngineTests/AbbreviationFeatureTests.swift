@@ -40,6 +40,62 @@ final class AbbreviationFeatureTests: XCTestCase {
         XCTAssertEqual(type("shijianrgzn").candidates.first, "时间人工智能")
     }
 
+    /// @jianpin-003 两个声母列出所有匹配的双字词
+    func test_jianpin003_twoInitialsListEveryMatchingTwoCharacterWord() {
+        let candidates = type("js").candidates
+
+        XCTAssertTrue(candidates.contains("技术"), "\(candidates.prefix(9))")
+        XCTAssertTrue(candidates.contains("计算"), "\(candidates.prefix(9))")
+    }
+
+    /// @jianpin-005 选择简拼列出的非首选词并上屏
+    func test_jianpin005_choosingNonFirstAbbreviationWordCommitsIt() {
+        let candidates = type("js").candidates
+        guard let first = candidates.first, ["技术", "计算"].contains(first) else {
+            return XCTFail("首选不是技术或计算：\(candidates.prefix(9))")
+        }
+        let other = first == "技术" ? "计算" : "技术"
+        guard let index = candidates.firstIndex(of: other), index < 9 else {
+            return XCTFail("\(other) 不在首页：\(candidates.prefix(9))")
+        }
+
+        let state = engine.process(.number(index + 1))
+
+        XCTAssertEqual(state.committedText, other)
+    }
+
+    // MARK: - 候选列表
+
+    /// 纯简拼输入的候选末尾列出首字母的单字，选中只消耗该字母，其余字母留下继续组词
+    func testAbbreviationListsFirstLetterSingleCharactersAsPartialChoices() {
+        let candidates = type("js").candidates
+        guard let index = candidates.firstIndex(of: "级"), index < 9 else {
+            return XCTFail("首字母单字不在首页：\(candidates.prefix(9))")
+        }
+
+        let state = engine.process(.number(index + 1))
+
+        XCTAssertNil(state.committedText)
+        XCTAssertEqual(state.items.first, .text("级"))
+        XCTAssertEqual(state.items.last?.sourcePinyin, "s")
+    }
+
+    /// 首段为简拼段时，首段补充候选为与首段字母匹配的其他词；选中后剩余字母继续组词
+    func testFirstAbbreviationSegmentOffersOtherWordsMatchingItsLetters() {
+        let state = type("jsrgzn")
+        let composed = state.candidates.first ?? ""
+        let other = composed.hasPrefix("技术") ? "计算" : "技术"
+        guard let index = state.candidates.firstIndex(of: other), index < 9 else {
+            return XCTFail("\(other) 不在首页：\(state.candidates.prefix(9))")
+        }
+
+        let next = engine.process(.number(index + 1))
+
+        XCTAssertNil(next.committedText)
+        XCTAssertEqual(next.items.first, .text(other))
+        XCTAssertEqual(next.candidates.first, "人工智能")
+    }
+
     // MARK: - 开销
 
     /// 简拼越长，每次按键的词典查询次数不成倍增长：同一对起始单元的词条只扫描一次，
