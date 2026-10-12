@@ -1255,7 +1255,8 @@ public class PinyinEngine {
         let firstSegmentIsAbbreviation =
             convResult?.abbreviationReadings.first.map { $0 != nil } ?? false
         appendAbbreviationCandidates(
-            cleanPinyin: cleanPinyin, conversion: convResult, store: store,
+            cleanPinyin: cleanPinyin, conversion: convResult,
+            firstSegmentIsAbbreviation: firstSegmentIsAbbreviation, store: store,
             to: &result, partial: &partial, readings: &readings)
 
         // 5. 首段补充候选：从 Conversion 结果或 PinyinSplitter 获取首段拼音，
@@ -1396,7 +1397,8 @@ public class PinyinEngine {
     /// 2. Conversion 首段为简拼段且不覆盖整串时，与首段字母匹配的其他词（部分方案，消耗首段字母）；
     /// 3. 整串为简拼且已有候选时，首字母的单字（部分方案，只消耗首字母）。
     private func appendAbbreviationCandidates(
-        cleanPinyin: String, conversion: ConversionResult?, store: DictionaryStore?,
+        cleanPinyin: String, conversion: ConversionResult?, firstSegmentIsAbbreviation: Bool,
+        store: DictionaryStore?,
         to result: inout [String], partial: inout [String: String],
         readings: inout [String: String]
     ) {
@@ -1434,9 +1436,8 @@ public class PinyinEngine {
             }
         }
 
-        if let conversion = conversion,
-            conversion.abbreviationReadings.first.map({ $0 != nil }) == true,
-            let first = conversion.segments.first, first.pinyin != cleanPinyin
+        if firstSegmentIsAbbreviation,
+            let first = conversion?.segments.first, first.pinyin != cleanPinyin
         {
             let firstUnits = Abbreviation.units(in: Array(first.pinyin), from: 0)
             let matches = store.abbreviationMatches(
@@ -1693,7 +1694,14 @@ public class PinyinEngine {
     // MARK: - 组词轨迹
 
     /// 登记一个确认步骤：该步骤产出的文本，以及它实际取用的音节。
+    ///
+    /// 该步骤的读音未知时（只知道键入的字母，如简拼的首字母单字取自 `j`，或以词定字时
+    /// 切分与候选不对齐而留空），本轮不登记组合词：把字母当作读音写入固顶词只会留下
+    /// 无法再命中的条目，而多音字的读音无从可靠推断。
     private func recordComposeStep(text: String, pinyin: String) {
+        if pinyin.isEmpty || PinyinSplitter.split(pinyin) == nil {
+            composeTrailTrusted = false
+        }
         composeTrail.append((text: text, pinyin: pinyin))
     }
 

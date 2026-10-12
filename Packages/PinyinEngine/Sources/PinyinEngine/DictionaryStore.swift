@@ -276,9 +276,13 @@ public class DictionaryStore {
         let unitBytes = units.map { Array($0.utf8) }
         var matches: [AbbreviationEntry] = []
         for row in abbreviationRows(firstUnit: units[0], secondUnit: units[1])
-        where row.syllableCount == units.count {
-            guard let entry = Self.entry(row, matching: unitBytes) else { continue }
-            matches.append(entry)
+        where row.syllableCount == units.count
+            && Abbreviation.matches(row.pinyin, units: unitBytes)
+        {
+            matches.append(
+                AbbreviationEntry(
+                    word: row.word, pinyin: String(decoding: row.pinyin, as: UTF8.self),
+                    frequency: row.frequency))
             if matches.count >= limit { break }
         }
         return matches
@@ -295,33 +299,13 @@ public class DictionaryStore {
         return best
     }
 
-    /// 与一串简拼单元恰好匹配的词频最高的词条。行按词频降序排列，第一个匹配即为最优。
+    /// 与一串简拼单元恰好匹配的词频最高的词条（行按词频降序，第一个匹配即为最优），结果缓存。
     private func bestAbbreviationMatch(units: [String]) -> AbbreviationEntry? {
         let key = units.joined(separator: "|")
         if let cached = bestAbbreviationCache[key] { return cached }
-
-        let unitBytes = units.map { Array($0.utf8) }
-        var match: AbbreviationEntry?
-        for row in abbreviationRows(firstUnit: units[0], secondUnit: units[1])
-        where row.syllableCount == units.count {
-            if let entry = Self.entry(row, matching: unitBytes) {
-                match = entry
-                break
-            }
-        }
+        let match = abbreviationMatches(units: units, limit: 1).first
         bestAbbreviationCache[key] = .some(match)
         return match
-    }
-
-    private static func entry(_ row: AbbreviationRow, matching units: [[UInt8]])
-        -> AbbreviationEntry?
-    {
-        guard let syllables = Abbreviation.matchingSyllables(of: row.pinyin, units: units) else {
-            return nil
-        }
-        return AbbreviationEntry(
-            word: row.word, pinyin: String(decoding: row.pinyin, as: UTF8.self),
-            frequency: row.frequency, syllables: syllables)
     }
 
     /// 首音节以 `firstUnit` 开头、次音节以 `secondUnit` 开头的候选多字词条（范围查询的超集，

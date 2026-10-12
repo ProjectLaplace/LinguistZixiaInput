@@ -221,4 +221,27 @@ final class PinnedWordIntegrationTests: XCTestCase {
             pinned.pinned(for: otherPinyin + "rengongzhineng"), [other + "人工智能"])
         XCTAssertEqual(pinned.pinned(for: "jsrgzn"), [])
     }
+
+    /// 组词步骤取自读音未知的候选（简拼的首字母单字只知道键入的字母）时，本轮不登记组合词，
+    /// 不把键入的字母当作读音写入固顶词
+    func testCompositionWithUnknownReadingIsNotPinned() {
+        let pinned = PinnedWordStore(toml: "[pinned]\n")
+        let engine = makeEngine(pinnedWords: pinned)
+
+        let state = type(engine, "js")
+        // 首字母单字排在与整串匹配的词之后，是单字且不是整串匹配的词
+        guard
+            let index = state.candidates.firstIndex(where: {
+                $0.count == 1
+            }), index < 9
+        else {
+            return XCTFail("首页没有首字母单字：\(state.candidates.prefix(9))")
+        }
+        let first = state.candidates[index]
+        _ = engine.process(.number(index + 1))
+        let committed = engine.process(.space)
+
+        XCTAssertEqual(committed.committedText?.hasPrefix(first), true)
+        XCTAssertEqual(pinned.pinned(for: "js"), [])
+    }
 }

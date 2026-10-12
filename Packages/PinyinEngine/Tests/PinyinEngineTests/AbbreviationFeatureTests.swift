@@ -6,12 +6,14 @@ import XCTest
 final class AbbreviationFeatureTests: XCTestCase {
 
     private var engine: PinyinEngine!
+    private var store: DictionaryStore!
 
     override func setUp() {
         super.setUp()
         let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
         let jaPath = Bundle.module.url(forResource: "ja_dict", withExtension: "db")!.path
         engine = PinyinEngine(zhDictPath: zhPath, jaDictPath: jaPath)
+        store = DictionaryStore(path: zhPath)
     }
 
     @discardableResult
@@ -123,6 +125,17 @@ final class AbbreviationFeatureTests: XCTestCase {
         XCTAssertTrue(Conversion.hasAbbreviationTail("shijianrgzn"))
         XCTAssertTrue(Conversion.hasAbbreviationTail("js"))
         XCTAssertTrue(Conversion.hasAbbreviationTail("zryy"))
+    }
+
+    /// 末单元能与其后的字母组成音节时，简拼段不在该处结束：jsan 中的 s 属于 san，
+    /// 不应切出「技术」再把孤立的 an 组成单字
+    func testAbbreviationDoesNotEndInsideFollowingSyllable() {
+        for input in ["jsan", "jsai"] {
+            guard let result = Conversion.compose(input, store: store) else { continue }
+            XCTAssertFalse(
+                result.text.hasPrefix("技术") || result.text.hasPrefix("计算"),
+                "\(input) → \(result.text)")
+        }
     }
 
     /// 单独的 zh/ch/sh 是一个双字母声母，不作为两个字母的简拼

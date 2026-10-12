@@ -514,6 +514,8 @@ public enum Conversion {
     ///
     /// 起点字母能接续前面的字母组成音节时（`guanl` 中的 `n`、`kaifangc` 中的 `g`），
     /// 它更自然地属于前一音节，不从该处开始简拼段，与裸声母展开的碎片化防护（%48）同理。
+    /// 对称地，末单元能与其后的字母组成音节时（`jsan` 中的 `s`、`bgao` 中的 `g`），
+    /// 它是后一音节的声母，简拼段不在该处结束，避免剩下的 `an`、`ao` 被组成孤立的单字。
     fileprivate static func enumerateAbbreviations(
         chars: [Character], from startPos: Int, store: DictionaryStore,
         canEndAt: (Int) -> Bool,
@@ -528,7 +530,11 @@ public enum Conversion {
         for unit in units {
             unitEnds.append(unitEnds[unitEnds.count - 1] + unit.count)
         }
-        let pending = Set((2...units.count).filter { canEndAt(unitEnds[$0]) })
+        let pending = Set(
+            (2...units.count).filter {
+                canEndAt(unitEnds[$0])
+                    && !continuesIntoFollowingSyllable(chars, unit: units[$0 - 1], at: unitEnds[$0])
+            })
         guard !pending.isEmpty else { return }
 
         let best = store.bestAbbreviationMatches(units: units, syllableCounts: pending)
@@ -561,5 +567,13 @@ public enum Conversion {
         return (earliest..<pos).contains {
             Abbreviation.syllablePrefixes.contains(String(chars[$0...pos]))
         }
+    }
+
+    /// 结束于 pos 的单元能否与 pos 处的字母组成某个合法音节的前缀
+    private static func continuesIntoFollowingSyllable(
+        _ chars: [Character], unit: String, at pos: Int
+    ) -> Bool {
+        guard pos < chars.count else { return false }
+        return Abbreviation.syllablePrefixes.contains(unit + String(chars[pos]))
     }
 }

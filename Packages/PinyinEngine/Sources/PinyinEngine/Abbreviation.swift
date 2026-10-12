@@ -1,13 +1,11 @@
 import Foundation
 
-/// 与一串简拼单元匹配的词条：词、完整拼音、词频，以及按词条字数切出的音节。
+/// 与一串简拼单元匹配的词条：词、完整拼音与词频。
 public struct AbbreviationEntry: Equatable {
     public let word: String
     /// 词条自身的完整拼音（如 `rengongzhineng`），而非键入的字母
     public let pinyin: String
     public let frequency: Int
-    /// 完整拼音按词条字数切出的音节（如 `["ren", "gong", "zhi", "neng"]`）
-    public let syllables: [String]
 }
 
 /// 简拼候选行：一对起始单元的范围查询结果。拼音以字节保存，匹配时才切分，
@@ -77,27 +75,6 @@ public enum Abbreviation {
     /// 简拼切分不使用它们。
     private static let interjectionSyllables: Set<String> = ["n", "m", "ng", "hm", "hng"]
 
-    /// 把词条拼音切为恰好 `count` 个合法音节的全部方式（不含叹词音节）。
-    ///
-    /// 词条字数确定音节数，借此消解 `xian` 与 `xi'an` 一类歧义。词库拼音不带隔音符号，
-    /// `fangan` 这类串本身有两种读法（方案、反感），故返回全部切分；`validSyllables` 是组合
-    /// 生成的超集，可能多出 `zhin` + `eng` 一类切分，它们多以元音开头，不会与键入的简拼匹配。
-    static func splits(of pinyin: String, into count: Int) -> [[String]] {
-        var results: [[String]] = []
-        search(Array(pinyin.utf8), count: count, units: []) { results.append($0) }
-        return results
-    }
-
-    /// 把拼音切为与单元依次匹配的音节（音节数等于单元数），返回第一种匹配的切分；无则 nil。
-    static func matchingSyllables(of pinyin: [UInt8], units: [[UInt8]]) -> [String]? {
-        var match: [String]?
-        search(pinyin, count: units.count, units: units) {
-            match = $0
-            return false
-        }
-        return match
-    }
-
     /// 合法音节（不含叹词音节）的字母 trie，以数组表示：`next[state * 26 + letter]` 为下一状态
     /// （-1 表示没有音节以此延伸），`terminal[state]` 表示到此为一个完整音节。切分时沿 trie
     /// 逐字母前进，前缀不再能延伸为音节即停止，不必为每个长度构造字符串或查集合。
@@ -122,67 +99,44 @@ public enum Abbreviation {
         return (next, terminal)
     }()
 
-    /// 在字节层面沿音节 trie 搜索把 `pinyin` 切为 `count` 个音节的方式，只为找到的切分构造字符串。
-    /// 前 `units.count` 个音节须依次以对应单元开头，不满足的分支在中途剪去。
-    /// `found` 返回 false 时停止搜索。
-    private static func search(
-        _ bytes: [UInt8], count: Int, units: [[UInt8]], found: ([String]) -> Bool
-    ) {
+    /// 词条拼音能否切为与单元依次匹配的合法音节：音节数等于单元数，各音节依次以对应单元开头，
+    /// 不含叹词音节。
+    ///
+    /// 词条字数确定音节数，借此消解 `xian` 与 `xi'an` 一类歧义。词库拼音不带隔音符号，
+    /// `fangan` 这类串本身有两种读法（方案、反感），故任一切分匹配即可；`validSyllables` 是组合
+    /// 生成的超集，可能多出 `zhin` + `eng` 一类切分，它们多以元音开头，不会与键入的简拼匹配。
+    ///
+    /// 在字节层面沿音节 trie 搜索，不匹配的分支在中途剪去，不构造任何字符串。
+    static func matches(_ bytes: [UInt8], units: [[UInt8]]) -> Bool {
         let n = bytes.count
+        let count = units.count
         let maxLength = PinyinSplitter.maxSyllableLength
-        guard count > 0, n >= count, n <= count * maxLength else { return }
+        guard count > 0, n >= count, n <= count * maxLength else { return false }
 
         let (next, terminal) = syllableTrie
-        var cuts: [Int] = [0]
-        var stopped = false
 
-        func step(from pos: Int) {
-            let index = cuts.count - 1
+        func step(from pos: Int, index: Int) -> Bool {
             let remaining = count - index
             let left = n - pos
-            if remaining == 0 {
-                if left == 0 {
-                    let syllables = (1..<cuts.count).map {
-                        String(decoding: bytes[cuts[$0 - 1]..<cuts[$0]], as: UTF8.self)
-                    }
-                    stopped = !found(syllables)
-                }
-                return
-            }
-            guard left >= remaining, left <= remaining * maxLength else { return }
-            if index < units.count {
-                let unit = units[index]
-                guard left >= unit.count else { return }
-                for offset in 0..<unit.count where bytes[pos + offset] != unit[offset] {
-                    return
-                }
+            if remaining == 0 { return left == 0 }
+            guard left >= remaining, left <= remaining * maxLength else { return false }
+            let unit = units[index]
+            guard left >= unit.count, bytes[pos..<(pos + unit.count)].elementsEqual(unit) else {
+                return false
             }
 
             var state = 0
             for end in (pos + 1)...min(n, pos + maxLength) {
                 let byte = bytes[end - 1]
-                guard byte >= 97, byte <= 122 else { return }
+                guard byte >= 97, byte <= 122 else { return false }
                 state = Int(next[state * 26 + Int(byte - 97)])
-                guard state >= 0 else { return }
-                if terminal[state] {
-                    cuts.append(end)
-                    step(from: end)
-                    cuts.removeLast()
-                    if stopped { return }
-                }
+                guard state >= 0 else { return false }
+                if terminal[state], step(from: end, index: index + 1) { return true }
             }
+            return false
         }
 
-        step(from: 0)
-    }
-
-    private static func search(
-        _ bytes: [UInt8], count: Int, units: [[UInt8]], found: ([String]) -> Void
-    ) {
-        search(bytes, count: count, units: units) { (syllables: [String]) -> Bool in
-            found(syllables)
-            return true
-        }
+        return step(from: 0, index: 0)
     }
 
     /// 以「首单元的各音节 + 第二单元」为前缀的范围查询前缀，覆盖首音节以首单元开头、

@@ -33,19 +33,21 @@ final class AbbreviationTests: XCTestCase {
 
     // MARK: - 音节切分
 
-    func testSplitsDivideReadingIntoExactSyllableCount() {
-        XCTAssertEqual(Abbreviation.splits(of: "xian", into: 1), [["xian"]])
-        XCTAssertEqual(Abbreviation.splits(of: "jishu", into: 2), [["ji", "shu"]])
-        XCTAssertTrue(
-            Abbreviation.splits(of: "rengongzhineng", into: 4).contains([
-                "ren", "gong", "zhi", "neng",
-            ]))
-        XCTAssertEqual(Abbreviation.splits(of: "jishu", into: 3), [])
+    private func matches(_ pinyin: String, _ units: [String]) -> Bool {
+        Abbreviation.matches(Array(pinyin.utf8), units: units.map { Array($0.utf8) })
     }
 
-    func testSplitsNeverUseInterjectionSyllables() {
-        // 西安 xi'an 不应切为 xia + n（嗯）
-        XCTAssertEqual(Abbreviation.splits(of: "xian", into: 2), [["xi", "an"]])
+    func testMatchingSplitsReadingIntoExactlyOneSyllablePerUnit() {
+        XCTAssertTrue(matches("xian", ["x"]))
+        XCTAssertTrue(matches("jishu", ["j", "sh"]))
+        XCTAssertTrue(matches("rengongzhineng", ["r", "g", "zh", "n"]))
+        XCTAssertFalse(matches("jishu", ["j", "s", "h"]))
+    }
+
+    func testMatchingNeverUsesInterjectionSyllables() {
+        // 西安 xi'an 可切为 xi + an，但不应切为 xia + n（嗯）
+        XCTAssertTrue(matches("xian", ["x", "a"]))
+        XCTAssertFalse(matches("xian", ["x", "n"]))
     }
 
     // MARK: - 匹配
@@ -71,12 +73,11 @@ final class AbbreviationTests: XCTestCase {
             store.abbreviationMatches(units: ["z", "r", "y", "y"]).map(\.word), ["自然语言"])
     }
 
-    func testMatchesCarryFullReadingAndSyllables() {
+    func testMatchesCarryFullReading() {
         let match = store.abbreviationMatches(units: ["r", "g", "z", "n"]).first
 
         XCTAssertEqual(match?.word, "人工智能")
         XCTAssertEqual(match?.pinyin, "rengongzhineng")
-        XCTAssertEqual(match?.syllables, ["ren", "gong", "zhi", "neng"])
     }
 
     func testMatchesRequireExactlyOneSyllablePerUnit() {
