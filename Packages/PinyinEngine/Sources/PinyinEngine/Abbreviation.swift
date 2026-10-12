@@ -10,6 +10,16 @@ public struct AbbreviationEntry: Equatable {
     public let syllables: [String]
 }
 
+/// 简拼候选行：一对起始单元的范围查询结果。拼音以字节保存，匹配时才切分，
+/// 使取行的开销与行数成正比，而切分只发生在实际参与比较的行上。
+struct AbbreviationRow {
+    let pinyin: [UInt8]
+    let word: String
+    let frequency: Int
+    /// 词条字数，即音节数
+    let syllableCount: Int
+}
+
 /// 简拼：只键入每个音节的首字母（或 zh/ch/sh），匹配各音节依次以这些字母开头的多字词。
 ///
 /// 规则（参见 Conversion.md「简拼段」）：
@@ -19,8 +29,8 @@ public struct AbbreviationEntry: Equatable {
 /// - 单元匹配以它开头的音节：`z` 匹配 `zi` 与 `zhi`，`zh` 只匹配 `zhi` 等以 zh 开头的音节。
 /// - 一个词匹配一串单元，当且仅当词的音节数等于单元数，且各音节依次被对应单元匹配。
 ///
-/// 查询方式：同一对起始单元的候选词条由 `DictionaryStore.abbreviationEntries` 以少量范围查询
-/// 一次取得并缓存，更长的简拼串在缓存的词条中过滤，不枚举音节组合。
+/// 查询方式：同一对起始单元的候选行由 `DictionaryStore.abbreviationRows` 以一次范围查询
+/// 取得并缓存（按词频降序），更长的简拼串在缓存的行中按词频顺序逐行匹配，不枚举音节组合。
 public enum Abbreviation {
 
     /// 简拼字母：单字母声母加上 y、w
@@ -63,31 +73,39 @@ public enum Abbreviation {
         return units
     }
 
-    /// 叹词音节（嗯、呣、哼）。词条中间出现它们的切分（`xian` → `xia` + `n`）几乎都是误切。
+    /// 叹词音节（嗯、呣、哼）。多字词条中间出现它们的切分（`xian` → `xia` + `n`）几乎都是误切，
+    /// 简拼切分不使用它们。
     private static let interjectionSyllables: Set<String> = ["n", "m", "ng", "hm", "hng"]
 
-    /// 把词条拼音切为恰好 `count` 个合法音节的方式。
+    /// 把词条拼音切为恰好 `count` 个合法音节的全部方式（不含叹词音节）。
     ///
-    /// 词条字数确定音节数，借此消解 `xian` 与 `xi'an` 一类歧义；含叹词音节的切分只在别无他法时保留。
-    /// 词库拼音不带隔音符号，`fangan` 这类串本身有两种读法（方案、反感），故返回全部切分；
-    /// `validSyllables` 是组合生成的超集，可能多出 `zhin` + `eng` 一类切分，它们多以元音开头，
-    /// 不会与任何键入的简拼匹配。
-    /// - Parameter leadingUnits: 前几个音节须依次以这些单元开头，不满足的切分在搜索中途剪去
-    static func splits(
-        of pinyin: String, into count: Int, leadingUnits: [String] = []
-    ) -> [[String]] {
-        let all = allSplits(of: pinyin, into: count, leadingUnits: leadingUnits)
-        let plain = all.filter { $0.allSatisfy { !interjectionSyllables.contains($0) } }
-        return plain.isEmpty ? all : plain
+    /// 词条字数确定音节数，借此消解 `xian` 与 `xi'an` 一类歧义。词库拼音不带隔音符号，
+    /// `fangan` 这类串本身有两种读法（方案、反感），故返回全部切分；`validSyllables` 是组合
+    /// 生成的超集，可能多出 `zhin` + `eng` 一类切分，它们多以元音开头，不会与键入的简拼匹配。
+    static func splits(of pinyin: String, into count: Int) -> [[String]] {
+        var results: [[String]] = []
+        search(Array(pinyin.utf8), count: count, units: []) { results.append($0) }
+        return results
     }
 
-    /// 合法音节的字母 trie，以数组表示：`next[state * 26 + letter]` 为下一状态（-1 表示没有
-    /// 音节以此延伸），`terminal[state]` 表示到此为一个完整音节。切分时沿 trie 逐字母前进，
-    /// 前缀不再能延伸为音节即停止，不必为每个长度构造字符串或查集合。
+    /// 把拼音切为与单元依次匹配的音节（音节数等于单元数），返回第一种匹配的切分；无则 nil。
+    static func matchingSyllables(of pinyin: [UInt8], units: [[UInt8]]) -> [String]? {
+        var match: [String]?
+        search(pinyin, count: units.count, units: units) {
+            match = $0
+            return false
+        }
+        return match
+    }
+
+    /// 合法音节（不含叹词音节）的字母 trie，以数组表示：`next[state * 26 + letter]` 为下一状态
+    /// （-1 表示没有音节以此延伸），`terminal[state]` 表示到此为一个完整音节。切分时沿 trie
+    /// 逐字母前进，前缀不再能延伸为音节即停止，不必为每个长度构造字符串或查集合。
     private static let syllableTrie: (next: [Int32], terminal: [Bool]) = {
         var next = [Int32](repeating: -1, count: 26)
         var terminal = [false]
-        for syllable in PinyinSplitter.validSyllables {
+        for syllable in PinyinSplitter.validSyllables
+        where !interjectionSyllables.contains(syllable) {
             var state = 0
             for byte in syllable.utf8 {
                 guard byte >= 97, byte <= 122 else { break }
@@ -104,31 +122,30 @@ public enum Abbreviation {
         return (next, terminal)
     }()
 
-    /// 逐键组词时每次重建缓存都要切分上千条词条，故在字节层面沿音节 trie 搜索，
-    /// 只为最终切分构造字符串。
-    private static func allSplits(
-        of pinyin: String, into count: Int, leadingUnits: [String]
-    ) -> [[String]] {
-        let bytes = Array(pinyin.utf8)
+    /// 在字节层面沿音节 trie 搜索把 `pinyin` 切为 `count` 个音节的方式，只为找到的切分构造字符串。
+    /// 前 `units.count` 个音节须依次以对应单元开头，不满足的分支在中途剪去。
+    /// `found` 返回 false 时停止搜索。
+    private static func search(
+        _ bytes: [UInt8], count: Int, units: [[UInt8]], found: ([String]) -> Bool
+    ) {
         let n = bytes.count
         let maxLength = PinyinSplitter.maxSyllableLength
-        guard count > 0, n >= count, n <= count * maxLength else { return [] }
+        guard count > 0, n >= count, n <= count * maxLength else { return }
 
         let (next, terminal) = syllableTrie
-        let units = leadingUnits.map { Array($0.utf8) }
-        var results: [[String]] = []
         var cuts: [Int] = [0]
+        var stopped = false
 
-        func search(from pos: Int) {
+        func step(from pos: Int) {
             let index = cuts.count - 1
             let remaining = count - index
             let left = n - pos
             if remaining == 0 {
                 if left == 0 {
-                    results.append(
-                        (1..<cuts.count).map {
-                            String(decoding: bytes[cuts[$0 - 1]..<cuts[$0]], as: UTF8.self)
-                        })
+                    let syllables = (1..<cuts.count).map {
+                        String(decoding: bytes[cuts[$0 - 1]..<cuts[$0]], as: UTF8.self)
+                    }
+                    stopped = !found(syllables)
                 }
                 return
             }
@@ -149,20 +166,23 @@ public enum Abbreviation {
                 guard state >= 0 else { return }
                 if terminal[state] {
                     cuts.append(end)
-                    search(from: end)
+                    step(from: end)
                     cuts.removeLast()
+                    if stopped { return }
                 }
             }
         }
 
-        search(from: 0)
-        return results
+        step(from: 0)
     }
 
-    /// 音节序列的前若干个是否依次被单元匹配
-    static func syllables(_ syllables: [String], match units: ArraySlice<String>) -> Bool {
-        guard syllables.count >= units.count else { return false }
-        return zip(syllables, units).allSatisfy { $0.hasPrefix($1) }
+    private static func search(
+        _ bytes: [UInt8], count: Int, units: [[UInt8]], found: ([String]) -> Void
+    ) {
+        search(bytes, count: count, units: units) { (syllables: [String]) -> Bool in
+            found(syllables)
+            return true
+        }
     }
 
     /// 以「首单元的各音节 + 第二单元」为前缀的范围查询前缀，覆盖首音节以首单元开头、

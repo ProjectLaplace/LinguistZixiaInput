@@ -1202,12 +1202,14 @@ public class PinyinEngine {
         }
 
         // 4. 有精确匹配时跳过 Conversion；无精确匹配时用 Conversion 组词
-        //    触发条件：多音节且无精确匹配。remainder 为裸声母时也触发（如 gangcd → gang+c, remainder=d）
+        //    触发条件：多音节且无精确匹配。remainder 为裸声母时也触发（如 gangcd → gang+c, remainder=d）；
+        //    输入末尾为简拼串时也触发（js、zryy：y、w 不是声母，PinyinSplitter 视其为残留尾段）
         let remainderIsBareInitial =
             !remainder.isEmpty && PinyinSplitter.validInitials.contains(remainder)
         let shouldRunConversion =
-            result.isEmpty && defaultSyllables.count > 1
-            && (remainder.isEmpty || remainderIsBareInitial)
+            result.isEmpty
+            && ((defaultSyllables.count > 1 && (remainder.isEmpty || remainderIsBareInitial))
+                || Conversion.hasAbbreviationTail(cleanPinyin))
         var convResult: ConversionResult? = nil
         if shouldRunConversion {
             convResult =

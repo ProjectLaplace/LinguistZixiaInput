@@ -43,7 +43,7 @@ final class AbbreviationTests: XCTestCase {
         XCTAssertEqual(Abbreviation.splits(of: "jishu", into: 3), [])
     }
 
-    func testSplitsAvoidInterjectionSyllablesWhenAlternativesExist() {
+    func testSplitsNeverUseInterjectionSyllables() {
         // 西安 xi'an 不应切为 xia + n（嗯）
         XCTAssertEqual(Abbreviation.splits(of: "xian", into: 2), [["xi", "an"]])
     }
@@ -94,7 +94,7 @@ final class AbbreviationTests: XCTestCase {
 
     // MARK: - 查询开销
 
-    /// 同一对起始单元的词条只从词库扫描一次；更长的简拼串在缓存的词条中过滤。
+    /// 同一对起始单元的词条只从词库扫描一次；更长的简拼串在缓存的行中匹配。
     func testLongerAbbreviationSharingFirstTwoUnitsRunsNoFurtherQuery() {
         _ = store.abbreviationMatches(units: ["r", "g"])
         store.resetStats()
@@ -109,7 +109,7 @@ final class AbbreviationTests: XCTestCase {
         let zhPath = Bundle.module.url(forResource: "zh_dict", withExtension: "db")!.path
         let small = DictionaryStore(path: zhPath, abbreviationCacheCapacity: 2)!
         for (first, second) in [("j", "s"), ("r", "g"), ("z", "r"), ("k", "f"), ("s", "j")] {
-            _ = small.abbreviationEntries(firstUnit: first, secondUnit: second)
+            _ = small.abbreviationRows(firstUnit: first, secondUnit: second)
         }
 
         XCTAssertLessThanOrEqual(small.cachedAbbreviationKeyCount, 4)

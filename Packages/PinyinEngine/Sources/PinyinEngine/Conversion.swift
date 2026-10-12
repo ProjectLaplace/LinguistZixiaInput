@@ -21,6 +21,9 @@ public struct ConversionResult {
     public let segmentCount: Int
     /// 所有段 log(freq) 之和
     public let totalFreqSum: Double
+    /// 与 `segments` 一一对应：简拼段为该词条自身的完整拼音（如 `rengongzhineng`），
+    /// 其余段为 nil。简拼段在 `segments` 中的 `pinyin` 是键入的字母（如 `rgzn`）。
+    public let abbreviationReadings: [String?]
 
     public init(
         segments: [(word: String, pinyin: String, frequency: Int)],
@@ -30,7 +33,8 @@ public struct ConversionResult {
         wordCoverage: Double,
         pathScore: Double,
         segmentCount: Int,
-        totalFreqSum: Double
+        totalFreqSum: Double,
+        abbreviationReadings: [String?] = []
     ) {
         self.segments = segments
         self.chunks = chunks
@@ -40,6 +44,9 @@ public struct ConversionResult {
         self.pathScore = pathScore
         self.segmentCount = segmentCount
         self.totalFreqSum = totalFreqSum
+        self.abbreviationReadings =
+            abbreviationReadings.isEmpty
+            ? Array(repeating: nil, count: segments.count) : abbreviationReadings
     }
 }
 
@@ -132,18 +139,10 @@ public enum Conversion {
 
         // 从右往左填 DP
         for pos in stride(from: n - 1, through: 0, by: -1) {
-            enumeratePhrases(
-                chars: chars, from: pos, store: store,
-                pinnedChars: pinnedChars, pinnedWords: pinnedWords
-            ) {
-                word, frequency, chunks, endPos in
+            // 把以 pos 起始的新段 prepend 到 dp[endPos] 上（从右往左 DP 的自然顺序）
+            func offer(_ segment: State, endingAt endPos: Int) {
                 guard let rest = dp[endPos] else { return }
-
-                // 把新段 prepend 到 rest 上（从右往左 DP 的自然顺序）
-                let candidate = State.segment(
-                    word: word, frequency: frequency, chunks: chunks, config: config
-                ).concat(rest)
-
+                let candidate = segment.concat(rest)
                 if let existing = dp[pos] {
                     if candidate.isBetter(than: existing) {
                         dp[pos] = candidate
@@ -151,6 +150,27 @@ public enum Conversion {
                 } else {
                     dp[pos] = candidate
                 }
+            }
+
+            enumeratePhrases(
+                chars: chars, from: pos, store: store,
+                pinnedChars: pinnedChars, pinnedWords: pinnedWords
+            ) {
+                word, frequency, chunks, endPos in
+                offer(
+                    State.segment(word: word, frequency: frequency, chunks: chunks, config: config),
+                    endingAt: endPos)
+            }
+
+            enumerateAbbreviations(
+                chars: chars, from: pos, store: store, canEndAt: { dp[$0] != nil }
+            ) {
+                entry, chunks, endPos in
+                offer(
+                    State.segment(
+                        word: entry.word, frequency: entry.frequency, chunks: chunks,
+                        abbreviationReading: entry.pinyin, config: config),
+                    endingAt: endPos)
             }
         }
 
@@ -205,6 +225,8 @@ public enum Conversion {
     /// 通过 `segment(word:frequency:chunks:config:)` 构造单段状态，通过 `concat(_:)` 拼接。
     fileprivate struct State {
         var segments: [(word: String, pinyin: String, frequency: Int)]
+        /// 与 segments 一一对应，见 `ConversionResult.abbreviationReadings`
+        var abbreviationReadings: [String?]
         var chunks: [String]
         var wordFreqSum: Double
         var wordCount: Int
@@ -232,7 +254,7 @@ public enum Conversion {
 
         static func empty(config: ScoringConfig) -> State {
             State(
-                segments: [], chunks: [],
+                segments: [], abbreviationReadings: [], chunks: [],
                 wordFreqSum: 0, wordCount: 0, wordCharCount: 0, softWordCharCount: 0,
                 totalFreqSum: 0, segmentCount: 0, charCount: 0, chunkCount: 0,
                 syllableCharCount: 0, singleCharCount: 0,
@@ -240,8 +262,10 @@ public enum Conversion {
         }
 
         /// 构造单段状态：一个 (word, freq, chunks) 对应的独立累积。
+        /// 简拼段另带词条自身的完整拼音 `abbreviationReading`。
         static func segment(
-            word: String, frequency: Int, chunks: [String], config: ScoringConfig
+            word: String, frequency: Int, chunks: [String], abbreviationReading: String? = nil,
+            config: ScoringConfig
         ) -> State {
             let segmentFreq = log(Double(max(frequency, 1)))
             // 低频多字词（freq < wordNoiseFloor）视为词典噪声，不计入词段评分和覆盖率。
@@ -254,6 +278,7 @@ public enum Conversion {
 
             return State(
                 segments: [(word, chunks.joined(), frequency)],
+                abbreviationReadings: [abbreviationReading],
                 chunks: chunks,
                 wordFreqSum: isWord ? segmentFreq : 0,
                 wordCount: isWord ? 1 : 0,
@@ -274,6 +299,7 @@ public enum Conversion {
         func concat(_ other: State) -> State {
             State(
                 segments: segments + other.segments,
+                abbreviationReadings: abbreviationReadings + other.abbreviationReadings,
                 chunks: chunks + other.chunks,
                 wordFreqSum: wordFreqSum + other.wordFreqSum,
                 wordCount: wordCount + other.wordCount,
@@ -342,7 +368,8 @@ public enum Conversion {
                 wordCoverage: wordCoverage,
                 pathScore: pathScore,
                 segmentCount: segmentCount,
-                totalFreqSum: totalFreqSum)
+                totalFreqSum: totalFreqSum,
+                abbreviationReadings: abbreviationReadings)
         }
     }
 
@@ -477,5 +504,62 @@ public enum Conversion {
         }
 
         dfs(startPos, "", [])
+    }
+
+    // MARK: - 简拼段
+
+    /// 枚举从 pos 开始的简拼段：连续两个以上的简拼单元整体匹配多字词（规则见 `Abbreviation`）。
+    /// 对每个音节数只回调词频最高的词条，`endPos` 须满足 `canEndAt`（其后的输入已有可行路径）。
+    /// chunks 为各音节对应的键入单元（如 `["r", "g", "z", "n"]`），与输入字符一一对应。
+    ///
+    /// 起点字母能接续前面的字母组成音节时（`guanl` 中的 `n`、`kaifangc` 中的 `g`），
+    /// 它更自然地属于前一音节，不从该处开始简拼段，与裸声母展开的碎片化防护（%48）同理。
+    fileprivate static func enumerateAbbreviations(
+        chars: [Character], from startPos: Int, store: DictionaryStore,
+        canEndAt: (Int) -> Bool,
+        callback: (AbbreviationEntry, [String], Int) -> Void
+    ) {
+        guard !continuesPrecedingSyllable(chars, at: startPos) else { return }
+        let units = Abbreviation.units(in: chars, from: startPos)
+        guard units.count >= 2 else { return }
+
+        // unitEnds[k] 为前 k 个单元之后的输入位置
+        var unitEnds = [startPos]
+        for unit in units {
+            unitEnds.append(unitEnds[unitEnds.count - 1] + unit.count)
+        }
+        let pending = Set((2...units.count).filter { canEndAt(unitEnds[$0]) })
+        guard !pending.isEmpty else { return }
+
+        let best = store.bestAbbreviationMatches(units: units, syllableCounts: pending)
+        // 按音节数固定回调次序，使评分打平时的取舍可复现
+        for (count, entry) in best.sorted(by: { $0.key < $1.key }) {
+            callback(entry, Array(units[..<count]), unitEnds[count])
+        }
+    }
+
+    /// 输入的末尾是否为一个可组词的简拼串：末尾连续的简拼字母中，从第一个不接续前一音节的
+    /// 字母起至少有两个单元（`js`、`zryy`、`shijianrgzn` 是；`xiangf`、`zh`、`guanl` 不是）。
+    public static func hasAbbreviationTail(_ input: String) -> Bool {
+        let chars = Array(input)
+        var start = chars.count
+        while start > 0, Abbreviation.letters.contains(chars[start - 1]) {
+            start -= 1
+        }
+        guard
+            let runStart = (start..<chars.count).first(where: {
+                !continuesPrecedingSyllable(chars, at: $0)
+            })
+        else { return false }
+        return Abbreviation.units(in: chars, from: runStart).count >= 2
+    }
+
+    /// pos 处的字母能否与紧邻其前的若干字母组成某个合法音节的前缀
+    private static func continuesPrecedingSyllable(_ chars: [Character], at pos: Int) -> Bool {
+        let earliest = max(0, pos - PinyinSplitter.maxSyllableLength + 1)
+        guard earliest < pos else { return false }
+        return (earliest..<pos).contains {
+            Abbreviation.syllablePrefixes.contains(String(chars[$0...pos]))
+        }
     }
 }
