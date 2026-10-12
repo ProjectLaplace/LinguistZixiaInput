@@ -1391,7 +1391,8 @@ public class PinyinEngine {
     private static let abbreviationAlternativeLimit = 30
 
     /// 简拼候选（参见 Conversion.md「简拼段」）。依次追加，跳过已在候选中的文本：
-    /// 1. 整串为简拼时，与整串匹配的其他词，按词频降序（整串方案）；
+    /// 1. 整串为简拼时，与整串匹配的其他词，按词频降序（整串方案）；其中最高频者真正成词
+    ///    （词频不低于 `wordNoiseFloor`）时移到首位；
     /// 2. Conversion 首段为简拼段且不覆盖整串时，与首段字母匹配的其他词（部分方案，消耗首段字母）；
     /// 3. 整串为简拼且已有候选时，首字母的单字（部分方案，只消耗首字母）。
     private func appendAbbreviationCandidates(
@@ -1425,6 +1426,12 @@ public class PinyinEngine {
             let matches = store.abbreviationMatches(
                 units: units, limit: Self.abbreviationAlternativeLimit)
             append(matches, consuming: nil)
+            // 与整串匹配的最高频词条真正成词时排在组词结果之前，与完整拼音「整串匹配优先」一致：
+            // 组词评分可能让两个高频双字词（如果 + 只能）略胜同一串字母的四字词（人工智能）
+            if let top = matches.first, top.frequency >= ScoringConfig.default.wordNoiseFloor {
+                result.removeAll { $0 == top.word }
+                result.insert(top.word, at: 0)
+            }
         }
 
         if let conversion = conversion,
